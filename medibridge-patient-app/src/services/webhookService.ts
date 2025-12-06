@@ -3,9 +3,6 @@
  * Handles all communication with n8n AI workflow
  */
 
-// Webhook URL - will use environment variable in production
-const N8N_WEBHOOK_URL = '/api/webhook';
-
 // ===================
 // TYPE DEFINITIONS
 // ===================
@@ -38,18 +35,42 @@ export interface WebhookResponse {
 // ===================
 
 /**
- * Analyze a prescription document (first upload)
+ * Analyze a prescription with optional chief concern
  */
 export async function analyzePrescription(data: {
   prescription_id: string;
   file_url: string;
   file_type: string;
+  user_id: string;
+  user_name?: string;
+  user_email?: string;
+  organization_id?: string;
+  clinic_name?: string;
+  chat_session_id: string;
+  chief_concern?: string;
 }): Promise<WebhookResponse> {
+  const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 
+    process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || 
+    'https://n8n.nhcare.in/webhook/28465002-1451-4336-8fc7-eb333declef3';
+
   try {
+    // Build query - use chief concern if provided, otherwise default
+    const query = data.chief_concern?.trim() 
+      ? `${data.chief_concern.trim()}\n\n[Please also analyze the attached prescription and explain all medicines]`
+      : 'Please analyze this prescription and explain all medicines, dosages, and instructions clearly.';
+
     const payload: WebhookPayload = {
       body: {
-        ...data,
-        query: 'Please analyze this prescription and explain all medicines, dosages, and instructions clearly.',
+        prescription_id: data.prescription_id,
+        file_url: data.file_url,
+        file_type: data.file_type,
+        user_id: data.user_id,
+        user_name: data.user_name,
+        user_email: data.user_email,
+        organization_id: data.organization_id,
+        clinic_name: data.clinic_name,
+        query: query,
+        chat_session_id: data.chat_session_id,
         channel: 'web',
         language: 'auto-detect'
       }
@@ -92,6 +113,10 @@ export async function askFollowUpQuestion(data: {
   chat_session_id: string;
   clinic_name?: string;
 }): Promise<WebhookResponse> {
+  const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 
+    process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || 
+    'https://n8n.nhcare.in/webhook/28465002-1451-4336-8fc7-eb333declef3';
+
   try {
     const payload: WebhookPayload = {
       body: {
@@ -132,6 +157,10 @@ export async function askFollowUpQuestion(data: {
  * Health check for webhook
  */
 export async function checkWebhookHealth(): Promise<boolean> {
+  const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 
+    process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || 
+    'https://n8n.nhcare.in/webhook/28465002-1451-4336-8fc7-eb333declef3';
+
   try {
     const response = await fetch(N8N_WEBHOOK_URL, {
       method: 'POST',
@@ -155,73 +184,4 @@ export async function checkWebhookHealth(): Promise<boolean> {
  */
 export function extractResponseText(response: WebhookResponse): string {
   return response.output || response.text || 'I could not process your request. Please try again.';
-}
-export interface WebhookPayload {
-  body: {
-    prescription_id?: string;
-    file_url?: string;
-    file_type?: string;
-    user_id: string;
-    user_name?: string;
-    user_email?: string;
-    organization_id?: string;
-    clinic_name?: string;
-    query: string;  // <-- This carries the chief concern
-    chat_session_id: string;
-    channel?: string;
-    language?: string;
-  };
-}
-
-/**
- * Analyze a prescription with optional chief concern
- */
-export async function analyzePrescription(data: {
-  prescription_id: string;
-  file_url: string;
-  file_type: string;
-  user_id: string;
-  user_name?: string;
-  user_email?: string;
-  organization_id?: string;
-  clinic_name?: string;
-  chat_session_id: string;
-  chief_concern?: string;  // NEW: Optional chief concern
-}): Promise<WebhookResponse> {
-  const N8N_WEBHOOK_URL = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || 
-    'https://n8n.nhcare.in/webhook/57b98d1c-fdaf-4e74-bc3e-f14c005de33f';
-
-  // Build query - use chief concern if provided, otherwise default
-  const query = data.chief_concern?.trim() 
-    ? `${data.chief_concern.trim()}\n\n[Please also analyze the attached prescription and explain all medicines]`
-    : 'Please analyze this prescription and explain all medicines, dosages, and instructions clearly.';
-
-  const payload: WebhookPayload = {
-    body: {
-      prescription_id: data.prescription_id,
-      file_url: data.file_url,
-      file_type: data.file_type,
-      user_id: data.user_id,
-      user_name: data.user_name,
-      user_email: data.user_email,
-      organization_id: data.organization_id,
-      clinic_name: data.clinic_name,
-      query: query,  // Chief concern passed here
-      chat_session_id: data.chat_session_id,
-      channel: 'web',
-      language: 'auto-detect'
-    }
-  };
-
-  const response = await fetch(N8N_WEBHOOK_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
-  if (!response.ok) {
-    throw new Error(`Webhook error: ${response.status}`);
-  }
-
-  return response.json();
 }
