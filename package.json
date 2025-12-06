@@ -1,0 +1,38 @@
+{
+  "name": "medibridge24x7-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "medibridge24x7",
+    "medibridge-patient-app",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "npm run dev:all",
+    "dev:main": "npm run dev --workspace=medibridge24x7",
+    "dev:patient": "npm run dev --workspace=medibridge-patient-app",
+    "dev:all": "concurrently \"npm run dev:main\" \"npm run dev:patient\"",
+    "build:main": "npm run build --workspace=medibridge24x7",
+    "build:patient": "npm run build --workspace=medibridge-patient-app",
+    "build:all": "npm run build --workspace=medibridge24x7 && npm run build --workspace=medibridge-patient-app",
+    "types:generate": "supabase gen types typescript --project-id tjsorjbebmkdnnuptavo > shared/types/database.ts"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^5.2.2",
+    "@supabase/auth-helpers-nextjs": "^0.15.0",
+    "@supabase/auth-ui-react": "^0.4.7",
+    "@supabase/auth-ui-shared": "^0.1.8",
+    "@supabase/ssr": "^0.8.0",
+    "@supabase/supabase-js": "^2.86.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.555.0",
+    "react-dropzone": "^14.3.8",
+    "react-hook-form": "^7.67.0",
+    "tailwind-merge": "^3.4.0",
+    "zod": "^4.1.13"
+  }
+}
