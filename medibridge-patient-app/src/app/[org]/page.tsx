@@ -11,11 +11,10 @@ export default async function OrgHomePage({ params }: OrgHomePageProps) {
   const supabase = await createSupabaseServer();
 
   const { data: organization } = await supabase
-    .from('organizations')
-    .select('*')
-    .eq('subdomain', org)
-    .eq('status', 'active')
-    .single();
+  .from('organizations')
+  .select('*')
+  .eq('subdomain', org)
+  .single();
 
   if (!organization) {
     notFound();
