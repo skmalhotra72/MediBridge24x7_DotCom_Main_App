@@ -40,7 +40,10 @@ export interface WebhookResponse {
 /**
  * Analyze a prescription document (first upload)
  */
-
+export async function analyzePrescription(data: {
+  prescription_id: string;
+  file_url: string;
+  file_type: string;
 }): Promise<WebhookResponse> {
   try {
     const payload: WebhookPayload = {
