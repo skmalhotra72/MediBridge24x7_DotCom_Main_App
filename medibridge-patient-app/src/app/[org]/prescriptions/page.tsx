@@ -72,7 +72,7 @@ export default async function PrescriptionsPage({ params }: PrescriptionsPagePro
               <div className="hidden sm:flex items-center gap-3 px-4 py-2 bg-white/5 rounded-xl border border-white/10">
                 <div className="w-8 h-8 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-lg flex items-center justify-center">
                   <span className="text-white font-bold text-xs">
-                    {(user.user_metadata?.full_name || 'Test User').split(' ').map(n => n[0]).join('').toUpperCase()}
+                  {(user.user_metadata?.full_name || 'Test User').split(' ').map((n: string) => n[0]).join('').toUpperCase()}
                   </span>
                 </div>
                 <span className="text-sm font-semibold text-white">{user.user_metadata?.full_name || 'Test User'}</span>
