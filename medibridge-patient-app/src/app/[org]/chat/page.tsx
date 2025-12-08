@@ -1,534 +1,505 @@
 'use client';
-import { useEffect, useState, useRef } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
+
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams, useParams } from 'next/navigation';
 import Link from 'next/link';
+import { createClient } from '@/lib/supabase/client';
 
-interface ChatMessage {
-  id?: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  created_at?: string;
-}
-
-export default function ChatPage({ params }: { params: Promise<{ org: string }> }) {
+export default function ChatPage() {
   const searchParams = useSearchParams();
+  const params = useParams();
+  const org = params.org as string;
+  const supabase = createClient();
+
   const prescriptionId = searchParams.get('prescription_id');
-  const sessionId = searchParams.get('session') || prescriptionId;
-  
-  const [org, setOrg] = useState<string>('');
-  const [prescription, setPrescription] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [error, setError] = useState('');
+  const sessionId = searchParams.get('session');
+
+  const [isAnalysisPanelOpen, setIsAnalysisPanelOpen] = useState(true);
+  const [messages, setMessages] = useState<any[]>([]);
   const [inputMessage, setInputMessage] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [userId, setUserId] = useState<string | null>(null);
-  
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const hasLoadedHistory = useRef(false);
+  const [isAITyping, setIsAITyping] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isWaitingForAnalysis, setIsWaitingForAnalysis] = useState(true);
+  const [prescriptionData, setPrescriptionData] = useState<any>(null);
+  const [analysisResult, setAnalysisResult] = useState<string | null>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const pollCountRef = useRef(0);
 
-  // n8n Webhook URL
-  const N8N_WEBHOOK_URL = "/api/webhook";
+  // Function to fetch AI response from database
+  const fetchAIResponse = useCallback(async () => {
+    if (!prescriptionId) return null;
 
-  // Auto-scroll to bottom when new messages arrive
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  useEffect(() => {
-    params.then(p => setOrg(p.org));
-  }, [params]);
-
-  // Get current user
-  useEffect(() => {
-    async function getUser() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setUserId(user.id);
-      }
-    }
-    getUser();
-  }, []);
-
-  useEffect(() => {
-    if (prescriptionId && userId && !hasLoadedHistory.current) {
-      hasLoadedHistory.current = true;
-      loadPrescriptionAndHistory();
-    } else if (!prescriptionId && !loading) {
-      // No prescription ID - show welcome message
-      setLoading(false);
-      if (messages.length === 0) {
-        setMessages([{
-          role: 'assistant',
-          content: 'Hello! I am your MediBridge AI assistant. 📋 No prescription loaded. You can upload a prescription to get AI analysis, or ask me general health questions!'
-        }]);
-      }
-    }
-  }, [prescriptionId, userId]);
-
-  // Save message to database
-  async function saveMessage(message: ChatMessage) {
-    if (!userId) return;
-    
     try {
-      const supabase = createClient();
-      await supabase.from('chat_messages').insert({
-        prescription_id: prescriptionId,
-        user_id: userId,
-        session_id: sessionId,
-        role: message.role,
-        content: message.content,
-        metadata: {}
-      });
-    } catch (err) {
-      console.error('Failed to save message:', err);
-    }
-  }
-
-  async function loadPrescriptionAndHistory() {
-    try {
-      const supabase = createClient();
-      
-      // Load prescription
-      const { data: prescriptionData, error: prescriptionError } = await supabase
-        .from('prescriptions')
+      // Check messages table for AI response
+      const { data: aiMessages, error } = await supabase
+        .from('messages')
         .select('*')
+        .eq('chat_session_id', sessionId || prescriptionId)
+        .eq('sender_type', 'ai')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (!error && aiMessages && aiMessages.length > 0) {
+        return aiMessages[0];
+      }
+
+      // Also check prescription for ai_summary
+      const { data: prescription } = await supabase
+        .from('prescriptions')
+        .select('ai_summary, processing_status')
         .eq('id', prescriptionId)
         .single();
 
-      if (prescriptionError) throw prescriptionError;
-      setPrescription(prescriptionData);
-
-      // Load existing chat history
-      const { data: chatHistory, error: chatError } = await supabase
-        .from('chat_messages')
-        .select('id, role, content, created_at')
-        .eq('prescription_id', prescriptionId)
-        .order('created_at', { ascending: true });
-
-      if (chatError) {
-        console.error('Error loading chat history:', chatError);
+      if (prescription?.ai_summary) {
+        return { message: prescription.ai_summary, source: 'prescription' };
       }
 
-      setLoading(false);
+      return null;
+    } catch (err) {
+      console.error('Error fetching AI response:', err);
+      return null;
+    }
+  }, [prescriptionId, sessionId, supabase]);
 
-      // If we have chat history, display it
-      if (chatHistory && chatHistory.length > 0) {
-        console.log('📜 Loaded chat history:', chatHistory.length, 'messages');
-        setMessages(chatHistory.map(msg => ({
-          id: msg.id,
-          role: msg.role as 'user' | 'assistant',
-          content: msg.content,
-          created_at: msg.created_at
-        })));
-      } else {
-        // No history - add welcome message and analyze if file exists
-        const welcomeMessage: ChatMessage = {
-          role: 'assistant',
-          content: 'Hello! I am your MediBridge AI assistant. I will analyze your prescription and help you understand your medications, tests, and precautions.'
+  // Poll for AI response
+  const startPolling = useCallback(() => {
+    if (pollingRef.current) return;
+
+    console.log('🔄 Starting to poll for AI response...');
+    
+    pollingRef.current = setInterval(async () => {
+      pollCountRef.current += 1;
+      console.log(`🔍 Poll attempt ${pollCountRef.current}...`);
+
+      const aiResponse = await fetchAIResponse();
+      
+      if (aiResponse) {
+        console.log('✅ AI response found!', aiResponse);
+        
+        // Stop polling
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+
+        // Extract the message text
+        const responseText = aiResponse.message || aiResponse.content || aiResponse.ai_summary || '';
+        
+        setAnalysisResult(responseText);
+        setIsWaitingForAnalysis(false);
+
+        // Add AI message to chat
+        setMessages(prev => {
+          // Check if we already have this message
+          const hasAIMessage = prev.some(m => m.sender === 'assistant' && m.text === responseText);
+          if (hasAIMessage) return prev;
+
+          return [...prev, {
+            id: aiResponse.id || `ai-${Date.now()}`,
+            sender: 'assistant',
+            text: responseText,
+            timestamp: new Date().toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit'
+            })
+          }];
+        });
+      }
+
+      // Stop polling after 60 seconds (30 attempts at 2 second intervals)
+      if (pollCountRef.current >= 30) {
+        console.log('⏱️ Polling timeout - stopping');
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+        setIsWaitingForAnalysis(false);
+      }
+    }, 2000); // Poll every 2 seconds
+  }, [fetchAIResponse]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+    };
+  }, []);
+
+  // Fetch prescription and messages on mount
+  useEffect(() => {
+    if (!prescriptionId) return;
+
+    const fetchData = async () => {
+      setIsLoading(true);
+      
+      try {
+        // Fetch prescription
+        const { data: prescription, error: prescError } = await supabase
+          .from('prescriptions')
+          .select('*')
+          .eq('id', prescriptionId)
+          .single();
+
+        if (prescError) throw prescError;
+        setPrescriptionData(prescription);
+
+        // Check if we already have an AI response
+        const existingAIResponse = await fetchAIResponse();
+        
+        if (existingAIResponse) {
+          console.log('✅ Found existing AI response');
+          const responseText = existingAIResponse.message || existingAIResponse.content || existingAIResponse.ai_summary || '';
+          setAnalysisResult(responseText);
+          setIsWaitingForAnalysis(false);
+          
+          // Set initial messages with AI response
+          setMessages([
+            {
+              id: 'welcome',
+              sender: 'assistant',
+              text: "Hello! I'm Dr. Bridge, your AI healthcare assistant. I've analyzed your prescription and I'm here to answer any questions you have about your medicines, dosages, and treatment plan. What would you like to know?",
+              timestamp: new Date().toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit'
+              })
+            },
+            {
+              id: existingAIResponse.id || `ai-${Date.now()}`,
+              sender: 'assistant',
+              text: responseText,
+              timestamp: new Date().toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit'
+              })
+            }
+          ]);
+        } else {
+          // No AI response yet, set welcome message and start polling
+          setMessages([{
+            id: 'welcome',
+            sender: 'assistant',
+            text: "Hello! I'm Dr. Bridge, your AI healthcare assistant. I've analyzed your prescription and I'm here to answer any questions you have about your medicines, dosages, and treatment plan. What would you like to know?",
+            timestamp: new Date().toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit'
+            })
+          }]);
+          
+          // Start polling for AI response
+          startPolling();
+        }
+
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [prescriptionId, sessionId, fetchAIResponse, startPolling, supabase]);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const handleSendMessage = async () => {
+    if (!inputMessage.trim() || isAITyping) return;
+
+    const userMessage = {
+      id: Date.now().toString(),
+      sender: 'user',
+      text: inputMessage,
+      timestamp: new Date().toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInputMessage('');
+    setIsAITyping(true);
+
+    try {
+      const response = await fetch('/api/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          body: {
+            query: inputMessage,
+            prescription_id: prescriptionId,
+            chat_session_id: sessionId || prescriptionId,
+            user_id: 'current-user',
+            channel: 'web'
+          }
+        })
+      });
+
+      console.log('📦 Webhook response status:', response.status);
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('📦 Webhook response data:', data);
+        console.log('📝 AI Output:', data.output);
+        
+        const aiMessage = {
+          id: (Date.now() + 1).toString(),
+          sender: 'assistant',
+          text: data.output || 'I received your question and will respond shortly.',
+          timestamp: new Date().toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit'
+          })
         };
         
-        setMessages([welcomeMessage]);
-        await saveMessage(welcomeMessage);
-
-        // Only analyze if file exists and not already analyzed
-        if (prescriptionData.file_url && prescriptionData.status !== 'analyzed') {
-          analyzeWithN8N(prescriptionData);
-        } else if (prescriptionData.status === 'analyzed') {
-          // Already analyzed but no history (edge case) - offer to re-analyze
-          const infoMessage: ChatMessage = {
-            role: 'assistant',
-            content: '✅ This prescription was previously analyzed. You can ask me any questions about it, or type "analyze again" if you\'d like a fresh analysis.'
-          };
-          setMessages(prev => [...prev, infoMessage]);
-          await saveMessage(infoMessage);
-        } else if (!prescriptionData.file_url) {
-          const noFileMessage: ChatMessage = {
-            role: 'assistant',
-            content: '📋 Prescription record found but no file was uploaded. Please upload a prescription image or PDF to get AI analysis.\n\nYou can still ask me general health questions!'
-          };
-          setMessages(prev => [...prev, noFileMessage]);
-          await saveMessage(noFileMessage);
-        }
+        console.log('💬 AI Message object:', aiMessage);
+        setMessages(prev => [...prev, aiMessage]);
+      } else {
+        console.error('❌ Webhook failed with status:', response.status);
+        const errorText = await response.text();
+        console.error('❌ Error response:', errorText);
       }
-
-    } catch (err: any) {
-      setError(err.message);
-      setLoading(false);
-    }
-  }
-
-  // Helper function to safely parse JSON response
-  async function safeParseResponse(response: Response): Promise<any> {
-    const responseText = await response.text();
-    
-    console.log('=== Raw Response ===', responseText.substring(0, 500));
-    
-    if (!responseText || responseText.trim() === '') {
-      throw new Error('Empty response from AI. Please try again.');
-    }
-
-    try {
-      return JSON.parse(responseText);
-    } catch (parseError) {
-      if (responseText.length > 0) {
-        return { output: responseText };
-      }
-      throw new Error('Invalid response format from AI.');
-    }
-  }
-
-  // Extract AI response from various possible response formats
-  function extractAIResponse(result: any): string {
-    if (typeof result === 'string') return result;
-    if (Array.isArray(result) && result.length > 0) result = result[0];
-    
-    const possibleFields = ['output', 'response', 'message', 'text', 'answer', 'content'];
-    for (const field of possibleFields) {
-      if (result[field]) return result[field];
-    }
-    
-    return typeof result === 'object' ? JSON.stringify(result, null, 2) : 'No response received';
-  }
-
-  async function analyzeWithN8N(prescriptionData: any) {
-    if (!prescriptionData?.file_url) return;
-
-    setAnalyzing(true);
-    
-    const analyzingMessage: ChatMessage = {
-      role: 'assistant',
-      content: '🔍 Analyzing your prescription... This may take a moment.'
-    };
-    setMessages(prev => [...prev, analyzingMessage]);
-
-    try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-
-// ⭐ Use stored chief concern from prescription OR default query
-const storedChiefConcern = prescriptionData.chief_concern;
-const queryText = storedChiefConcern 
-  ? storedChiefConcern 
-  : 'Please analyze this prescription and explain it to me';
-
-console.log('📝 [Chat] Chief concern from DB:', storedChiefConcern);
-console.log('📝 [Chat] Query being sent:', queryText);
-
-const requestBody = {
-  prescription_id: prescriptionData.id,
-  file_url: prescriptionData.file_url,
-  file_type: prescriptionData.file_type,
-  user_id: user?.id,
-  user_email: user?.email,
-  organization_id: prescriptionData.organization_id,
-  query: queryText,
-  chief_concern: storedChiefConcern || null
-};
-
-      const response = await fetch(N8N_WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
-      }
-
-      const result = await safeParseResponse(response);
-      
-      // Update prescription status
-      await supabase
-        .from('prescriptions')
-        .update({ status: 'analyzed' })
-        .eq('id', prescriptionData.id);
-
-      const aiResponse = extractAIResponse(result);
-      
-      // Remove the "analyzing" message and add the real response
-      const analysisMessage: ChatMessage = {
-        role: 'assistant',
-        content: `✅ **Prescription Analysis Complete**\n\n${aiResponse}`
-      };
-      
-      setMessages(prev => {
-        // Remove the analyzing message
-        const filtered = prev.filter(m => !m.content.includes('Analyzing your prescription'));
-        return [...filtered, analysisMessage];
-      });
-      
-      // Save to database
-      await saveMessage(analysisMessage);
-
-      setPrescription((prev: any) => ({ ...prev, status: 'analyzed' }));
-
-    } catch (err: any) {
-      console.error('Error in analyzeWithN8N:', err);
-      
-      const errorMessage: ChatMessage = {
-        role: 'assistant',
-        content: `⚠️ I couldn't complete the analysis automatically. Error: ${err.message}\n\nYou can still ask me questions about your prescription!`
-      };
-      
-      setMessages(prev => {
-        const filtered = prev.filter(m => !m.content.includes('Analyzing your prescription'));
-        return [...filtered, errorMessage];
-      });
-      
-      await saveMessage(errorMessage);
+    } catch (error) {
+      console.error('Error sending message:', error);
     } finally {
-      setAnalyzing(false);
+      setIsAITyping(false);
     }
-  }
+  };
 
-  async function sendMessage() {
-    if (!inputMessage.trim() || analyzing) return;
-
-    const userMessage = inputMessage.trim();
-    setInputMessage('');
-    
-    // Check for re-analyze command
-    if (userMessage.toLowerCase() === 'analyze again' && prescription?.file_url) {
-      analyzeWithN8N(prescription);
-      return;
-    }
-
-    // Add user message to chat
-    const userChatMessage: ChatMessage = { role: 'user', content: userMessage };
-    setMessages(prev => [...prev, userChatMessage]);
-    await saveMessage(userChatMessage);
-
-    setAnalyzing(true);
-
-    try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-
-      const requestBody: Record<string, any> = {
-        query: userMessage,
-        user_id: user?.id,
-        user_email: user?.email,
-      };
-
-      if (prescription?.id) {
-        requestBody.prescription_id = prescription.id;
-        requestBody.organization_id = prescription.organization_id;
-        requestBody.is_followup = true;
-      }
-      
-      if (prescription?.file_url) {
-        requestBody.file_url = prescription.file_url;
-        requestBody.file_type = prescription.file_type;
-      }
-
-      const response = await fetch(N8N_WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
-      }
-
-      const result = await safeParseResponse(response);
-      const aiResponse = extractAIResponse(result);
-
-      const assistantMessage: ChatMessage = { role: 'assistant', content: aiResponse };
-      setMessages(prev => [...prev, assistantMessage]);
-      await saveMessage(assistantMessage);
-
-    } catch (err: any) {
-      console.error('Error in sendMessage:', err);
-      
-      let errorContent = `Sorry, I encountered an error: ${err.message}`;
-      if (!prescription?.file_url && userMessage.toLowerCase().includes('prescription')) {
-        errorContent = "⚠️ No prescription file found. Please upload a prescription first, then I can help you understand it!\n\nYou can still ask general health questions.";
-      }
-      
-      const errorMessage: ChatMessage = { role: 'assistant', content: errorContent };
-      setMessages(prev => [...prev, errorMessage]);
-      await saveMessage(errorMessage);
-    } finally {
-      setAnalyzing(false);
-    }
-  }
-
-  function handleKeyPress(e: React.KeyboardEvent) {
+  const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      sendMessage();
+      handleSendMessage();
     }
-  }
+  };
 
-  if (!org) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  // Quick question handlers
+  const quickQuestions = [
+    "What are the side effects?",
+    "Can I take this with food?",
+    "What if I miss a dose?",
+    "Any drug interactions?"
+  ];
+
+  const handleQuickQuestion = (question: string) => {
+    setInputMessage(question);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-white text-lg">Loading prescription analysis...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="bg-white shadow-sm rounded-lg mb-6 p-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Prescription Analysis</h1>
-              <p className="text-sm text-gray-600 mt-1">AI-powered prescription assistant by MediBridge</p>
-            </div>
-            <Link 
-              href={`/${org}/dashboard`}
-              className="text-blue-600 hover:text-blue-700 font-medium"
-            >
-              Back to Dashboard
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
+      {/* Navigation */}
+      <nav className="border-b border-white/10 bg-slate-900/50 backdrop-blur-xl sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <Link href={`/${org}/dashboard`} className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/50">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <div>
+                <span className="text-lg font-bold text-white">MediBridge</span>
+                <p className="text-xs text-cyan-400 font-medium">AI Health Assistant</p>
+              </div>
             </Link>
+
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setIsAnalysisPanelOpen(!isAnalysisPanelOpen)}
+                className="lg:hidden px-4 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+              >
+                {isAnalysisPanelOpen ? 'Hide Analysis' : 'Show Analysis'}
+              </button>
+              <Link
+                href={`/${org}/dashboard`}
+                className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+              >
+                ← Back
+              </Link>
+            </div>
           </div>
         </div>
+      </nav>
 
-        {/* Error Display */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <p className="text-red-800">Error: {error}</p>
+      {/* Main Content */}
+      <div className="flex h-[calc(100vh-89px)]">
+        
+        {/* Left Panel - Analysis (Desktop: 60% / Mobile: Full) */}
+        <div className={`${isAnalysisPanelOpen ? 'w-full lg:w-[60%]' : 'hidden'} lg:block overflow-y-auto p-6 border-r border-white/10`}>
+          
+          {/* Prescription Analysis Header */}
+          <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-xl rounded-2xl border border-white/10 p-6 mb-6">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-12 h-12 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/30">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-white">Prescription Analysis</h2>
+                <p className="text-sm text-gray-400">AI-powered insights from your prescription</p>
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Patient</p>
+                <p className="text-white font-semibold">{prescriptionData?.patient_name || 'Patient'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Doctor</p>
+                <p className="text-white font-semibold">{prescriptionData?.doctor_name || 'Doctor'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Date</p>
+                <p className="text-white font-semibold">
+                  {prescriptionData?.created_at ? new Date(prescriptionData.created_at).toLocaleDateString() : 'Today'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Status</p>
+                <span className={`inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold rounded-full border ${
+                  isWaitingForAnalysis 
+                    ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' 
+                    : 'bg-green-500/20 text-green-400 border-green-500/30'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isWaitingForAnalysis ? 'bg-yellow-400 animate-pulse' : 'bg-green-400'}`}></span>
+                  {isWaitingForAnalysis ? 'Analyzing...' : 'Analyzed'}
+                </span>
+              </div>
+            </div>
           </div>
-        )}
 
-        {/* Chat Messages */}
-        <div className="bg-white shadow-sm rounded-lg p-6 mb-6" style={{ minHeight: '400px', maxHeight: '500px', overflowY: 'auto' }}>
-          <div className="space-y-4">
-            {messages.map((msg, idx) => (
+          {/* Analysis Content */}
+          {isWaitingForAnalysis ? (
+            <div className="bg-gradient-to-br from-cyan-500/10 to-blue-500/10 backdrop-blur-xl rounded-2xl border border-cyan-500/30 p-6 text-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">Analysis in Progress</h3>
+              <p className="text-gray-300 mb-4">
+                Our AI is analyzing your prescription. This usually takes 20-30 seconds.
+              </p>
+              <p className="text-sm text-cyan-400">
+                Chief Complaint: {prescriptionData?.chief_concern || prescriptionData?.chief_complaint || 'General analysis'}
+              </p>
+              <div className="mt-4 flex justify-center gap-1">
+                <span className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                <span className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                <span className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+              </div>
+            </div>
+          ) : analysisResult ? (
+            <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-xl rounded-2xl border border-white/10 p-6">
+              <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                AI Analysis Complete
+              </h3>
+              <div className="prose prose-invert prose-sm max-w-none">
+                <div className="text-gray-300 whitespace-pre-wrap leading-relaxed">
+                  {analysisResult}
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Right Panel - Chat (Desktop: 40% / Mobile: Full) */}
+        <div className={`${!isAnalysisPanelOpen ? 'w-full' : 'hidden lg:flex'} lg:w-[40%] flex flex-col`}>
+          
+          {/* Chat Messages */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            {messages.map((msg) => (
               <div
-                key={msg.id || idx}
-                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                key={msg.id}
+                className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                <div
-                  className={`max-w-[85%] rounded-lg p-4 ${
-                    msg.role === 'user'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-900'
-                  }`}
-                >
-                  <div className="whitespace-pre-line text-sm">{msg.content}</div>
-                  {msg.created_at && (
-                    <div className={`text-xs mt-2 ${msg.role === 'user' ? 'text-blue-200' : 'text-gray-400'}`}>
-                      {new Date(msg.created_at).toLocaleString('en-IN', {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </div>
-                  )}
+                <div className={`max-w-[80%] ${
+                  msg.sender === 'user'
+                    ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white'
+                    : 'bg-gradient-to-br from-purple-500/20 to-purple-600/20 text-white border border-purple-500/30'
+                } rounded-2xl px-4 py-3`}>
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                  <p className="text-xs opacity-70 mt-2">{msg.timestamp}</p>
                 </div>
               </div>
             ))}
 
-            {(loading || analyzing) && (
+            {isAITyping && (
               <div className="flex justify-start">
-                <div className="bg-gray-100 rounded-lg p-4">
-                  <div className="flex items-center space-x-2">
-                    <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
-                    <span className="text-gray-600">
-                      {loading ? 'Loading prescription...' : 'AI is thinking...'}
-                    </span>
+                <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/20 border border-purple-500/30 rounded-2xl px-4 py-3">
+                  <div className="flex gap-1">
+                    <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                    <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                    <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
                   </div>
                 </div>
               </div>
             )}
-            
-            {/* Auto-scroll anchor */}
-            <div ref={messagesEndRef} />
-          </div>
-        </div>
 
-        {/* Prescription Details */}
-        {prescription && (
-          <div className="bg-white shadow-sm rounded-lg p-6 mb-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Prescription Details</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-sm text-gray-600">Prescription ID</p>
-                <p className="font-mono text-xs text-gray-900 break-all">{prescription.id}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Status</p>
-                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                  prescription.status === 'analyzed' 
-                    ? 'bg-green-100 text-green-800' 
-                    : prescription.status === 'processing'
-                    ? 'bg-yellow-100 text-yellow-800'
-                    : 'bg-gray-100 text-gray-800'
-                }`}>
-                  {prescription.status?.charAt(0).toUpperCase() + prescription.status?.slice(1)}
-                </span>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">File Type</p>
-                <p className="text-gray-900">{prescription.file_type || 'N/A'}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Uploaded</p>
-                <p className="text-gray-900">{new Date(prescription.created_at).toLocaleString()}</p>
-              </div>
-            </div>
-            {prescription.file_url ? (
-              <div className="mt-4">
-                <a 
-                  href={prescription.file_url} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Quick Questions */}
+          <div className="px-6 py-3 border-t border-white/10">
+            <p className="text-xs text-gray-400 mb-2">Quick questions:</p>
+            <div className="flex flex-wrap gap-2">
+              {quickQuestions.map((q, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleQuickQuestion(q)}
+                  className="px-3 py-1.5 bg-white/5 text-xs text-gray-300 rounded-lg hover:bg-white/10 hover:text-white border border-white/10 transition-all"
                 >
-                  📄 View Uploaded File
-                </a>
-              </div>
-            ) : (
-              <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <p className="text-yellow-800 text-sm">⚠️ No file uploaded for this prescription</p>
-              </div>
-            )}
+                  {q}
+                </button>
+              ))}
+            </div>
           </div>
-        )}
 
-        {/* Input Area */}
-        <div className="bg-white shadow-sm rounded-lg p-6">
-          <div className="flex items-center space-x-4">
-            <input
-              type="text"
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
-              disabled={analyzing || loading}
-              placeholder="Ask me anything about your prescription..."
-              className={`flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                (analyzing || loading) ? 'bg-gray-50 cursor-not-allowed' : 'bg-white'
-              }`}
-            />
-            <button
-              onClick={sendMessage}
-              disabled={analyzing || loading || !inputMessage.trim()}
-              className={`px-6 py-3 rounded-lg font-medium transition-colors ${
-                (analyzing || loading || !inputMessage.trim())
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
-              }`}
-            >
-              {analyzing ? '...' : 'Send'}
-            </button>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <span className="text-xs text-gray-500">Quick questions:</span>
-            {['What are the side effects?', 'When should I take the medicines?', 'Any food restrictions?'].map((q) => (
+          {/* Chat Input */}
+          <div className="p-6 border-t border-white/10">
+            <div className="flex gap-3">
+              <textarea
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="Ask anything about your prescription..."
+                className="flex-1 px-4 py-3 bg-white/5 border-2 border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all resize-none"
+                rows={2}
+                disabled={isAITyping}
+              />
               <button
-                key={q}
-                onClick={() => setInputMessage(q)}
-                disabled={analyzing || loading}
-                className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 disabled:opacity-50"
+                onClick={handleSendMessage}
+                disabled={isAITyping || !inputMessage.trim()}
+                className="px-6 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold rounded-xl hover:from-cyan-600 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-cyan-500/50 transition-all duration-300 hover:scale-105 flex items-center justify-center"
               >
-                {q}
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
               </button>
-            ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              Press Enter to send, Shift+Enter for new line
+            </p>
           </div>
         </div>
       </div>

@@ -21,11 +21,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         <input
           ref={ref}
           required={required}
-          className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
-            error
-              ? 'bg-white border-red-300 text-gray-900 placeholder-gray-400 focus:ring-red-500 focus:border-red-500'
-              : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:ring-primary-500 focus:border-primary-500'
-          } ${props.disabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''} ${className}`}
+          className={`w-full px-4 py-3 border-2 rounded-xl transition-all duration-300
+            ${error
+              ? 'bg-white border-error text-gray-900 placeholder-gray-400 focus:outline-none focus:border-error focus:ring-4 focus:ring-red-50'
+              : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-4 focus:ring-primary-50 hover:border-gray-300'}
+            ${props.disabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}
+            ${className}`}
           {...props}
         />
         {error && (
