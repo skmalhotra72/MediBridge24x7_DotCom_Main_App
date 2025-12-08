@@ -213,10 +213,12 @@ function HeroSection() {
       <div className="grid lg:grid-cols-2 gap-12 items-center">
         <div className="space-y-8">
           <div className="space-y-4">
-            <h1 className="text-5xl lg:text-7xl font-bold text-white leading-tight">
-              Healthcare That
-              <span className="block text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">
-                Never Sleeps
+          <h1 className="text-5xl lg:text-7xl font-bold text-white leading-tight">
+  Healthcare That
+  <span className="block bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+    Never Sleeps
+  </span>
+</h1>
               </span>
             </h1>
             <p className="text-xl text-slate-300 leading-relaxed">
