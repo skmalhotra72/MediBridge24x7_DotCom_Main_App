@@ -1,415 +1,643 @@
-﻿import { redirect } from 'next/navigation';
-import { createSupabaseServer } from '@/lib/supabase/server';
-import Link from 'next/link';
+﻿'use client';
 
-interface DashboardPageProps {
-  params: Promise<{ org: string }>;
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
+import { 
+  FileText, 
+  FlaskConical, 
+  MessageCircle, 
+  Mic, 
+  Upload, 
+  Clock, 
+  CheckCircle2, 
+  AlertCircle,
+  Loader2,
+  ArrowRight,
+  X,
+  Camera,
+  File
+} from 'lucide-react';
+
+interface Prescription {
+  id: string;
+  created_at: string;
+  status: string;
+  chief_complaint: string | null;
+  file_url: string | null;
+  doctor_name: string | null;
+  total_medicines: number | null;
+  total_tests: number | null;
+  document_type?: string;
 }
 
-export default async function DashboardPage({ params }: DashboardPageProps) {
-  const { org } = await params;
-  const supabase = await createSupabaseServer();
+interface UploadOption {
+  id: string;
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+  enabled: boolean;
+  comingSoon?: boolean;
+}
 
-  const { data: { user }, error } = await supabase.auth.getUser();
+export default function DashboardPage() {
+  const params = useParams();
+  const router = useRouter();
+  const org = params.org as string;
+  
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
+  const [orgName, setOrgName] = useState<string>('');
+  
+  // Upload modal state
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [selectedUploadType, setSelectedUploadType] = useState<string | null>(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [chiefComplaint, setChiefComplaint] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
 
-  if (error || !user) {
-    redirect(`/${org}/auth?mode=login`);
-  }
+  // Stats
+  const [stats, setStats] = useState({
+    total: 0,
+    completed: 0,
+    processing: 0,
+    successRate: 98
+  });
 
-  const { data: prescriptions } = await supabase
-    .from('prescriptions')
-    .select('id, file_url, file_type, status, created_at, upload_source')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
-    .limit(5);
+  const supabase = createClient();
 
-  const handleSignOut = async () => {
-    'use server';
-    const supabase = await createSupabaseServer();
-    await supabase.auth.signOut();
-    redirect(`/${org}`);
+  // Upload options configuration
+  const uploadOptions: UploadOption[] = [
+    {
+      id: 'prescription',
+      title: "Doctor's Prescription",
+      description: 'Upload your prescription for medicine analysis, dosage explanations, and precautions',
+      icon: <FileText className="w-8 h-8" />,
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-50 hover:bg-blue-100',
+      borderColor: 'border-blue-200 hover:border-blue-400',
+      enabled: true
+    },
+    {
+      id: 'lab_report',
+      title: 'Lab Report',
+      description: 'Upload your lab test results for detailed analysis and health insights',
+      icon: <FlaskConical className="w-8 h-8" />,
+      color: 'text-emerald-600',
+      bgColor: 'bg-emerald-50 hover:bg-emerald-100',
+      borderColor: 'border-emerald-200 hover:border-emerald-400',
+      enabled: true
+    },
+    {
+      id: 'chat',
+      title: 'Chat Only',
+      description: 'Ask health questions directly without uploading any documents',
+      icon: <MessageCircle className="w-8 h-8" />,
+      color: 'text-purple-600',
+      bgColor: 'bg-purple-50 hover:bg-purple-100',
+      borderColor: 'border-purple-200 hover:border-purple-400',
+      enabled: true
+    },
+    {
+      id: 'voice',
+      title: 'Voice Chat',
+      description: 'Speak your questions and get audio responses',
+      icon: <Mic className="w-8 h-8" />,
+      color: 'text-orange-600',
+      bgColor: 'bg-orange-50 hover:bg-orange-100',
+      borderColor: 'border-orange-200 hover:border-orange-400',
+      enabled: false,
+      comingSoon: true
+    }
+  ];
+
+  // Fetch user and prescriptions
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        // Get user
+        const { data: { user } } = await supabase.auth.getUser();
+        setUser(user);
+
+        // Get organization name
+        const orgNameFormatted = org
+          .split('-')
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ');
+        setOrgName(orgNameFormatted);
+
+        if (user) {
+          // Fetch prescriptions
+          const { data: prescriptionData, error } = await supabase
+            .from('prescriptions')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+          if (!error && prescriptionData) {
+            setPrescriptions(prescriptionData);
+            
+            // Calculate stats
+            const total = prescriptionData.length;
+            const completed = prescriptionData.filter(p => 
+              p.status === 'completed' || p.status === 'analyzed'
+            ).length;
+            const processing = prescriptionData.filter(p => 
+              p.status === 'pending' || p.status === 'processing'
+            ).length;
+            
+            setStats({
+              total,
+              completed,
+              processing,
+              successRate: total > 0 ? Math.round((completed / total) * 100) : 98
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchData();
+  }, [org, supabase]);
+
+  // Handle option click
+  const handleOptionClick = (option: UploadOption) => {
+    if (!option.enabled) return;
+    
+    if (option.id === 'chat') {
+      // Navigate directly to chat without document
+      router.push(`/${org}/chat?mode=chat_only`);
+      return;
+    }
+    
+    setSelectedUploadType(option.id);
+    setShowUploadModal(true);
   };
 
-  const totalPrescriptions = prescriptions?.length || 0;
-  const analyzedCount = prescriptions?.filter(p => p.status === 'analyzed').length || 0;
-  const pendingCount = prescriptions?.filter(p => p.status === 'pending').length || 0;
+  // Handle file selection
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setUploadFile(file);
+    }
+  };
+
+  // Handle drag and drop
+  const handleDrag = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setUploadFile(e.dataTransfer.files[0]);
+    }
+  }, []);
+
+  // Handle upload and analyze
+  const handleUploadAndAnalyze = async () => {
+    if (!uploadFile || !user || !selectedUploadType) return;
+    
+    setUploading(true);
+    
+    try {
+      // 1. Upload file to Supabase Storage
+      const fileExt = uploadFile.name.split('.').pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `${user.id}/${fileName}`;
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('prescriptions')
+        .upload(filePath, uploadFile);
+      
+      if (uploadError) throw uploadError;
+      
+      // 2. Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('prescriptions')
+        .getPublicUrl(filePath);
+      
+      // 3. Create prescription record with document_type
+      const { data: prescriptionData, error: prescriptionError } = await supabase
+        .from('prescriptions')
+        .insert({
+          user_id: user.id,
+          file_url: publicUrl,
+          file_type: uploadFile.type,
+          chief_complaint: chiefComplaint || (selectedUploadType === 'prescription' 
+            ? 'Analyze my prescription' 
+            : 'Analyze my lab report'),
+          status: 'pending',
+          document_type: selectedUploadType, // 'prescription' or 'lab_report'
+          organization_slug: org
+        })
+        .select()
+        .single();
+      
+      if (prescriptionError) throw prescriptionError;
+      
+      // 4. Trigger n8n webhook with document_type
+      const webhookPayload = {
+        prescription_id: prescriptionData.id,
+        file_url: publicUrl,
+        file_type: uploadFile.type,
+        user_id: user.id,
+        user_name: user.user_metadata?.full_name || user.email,
+        user_email: user.email,
+        chief_complaint: chiefComplaint || (selectedUploadType === 'prescription' 
+          ? 'Analyze my prescription' 
+          : 'Analyze my lab report'),
+        channel: 'web',
+        organization: org,
+        document_type: selectedUploadType // KEY: This tells n8n which path to use
+      };
+      
+      const response = await fetch('/api/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(webhookPayload)
+      });
+      
+      if (!response.ok) {
+        console.error('Webhook error:', await response.text());
+      }
+      
+      // 5. Navigate to chat page
+      router.push(`/${org}/chat?prescription_id=${prescriptionData.id}&session=${prescriptionData.id}`);
+      
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('Failed to upload. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Close modal and reset
+  const closeModal = () => {
+    setShowUploadModal(false);
+    setSelectedUploadType(null);
+    setUploadFile(null);
+    setChiefComplaint('');
+  };
+
+  // Get selected option details
+  const selectedOption = uploadOptions.find(o => o.id === selectedUploadType);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
-      {/* Premium Navigation */}
-      <nav className="border-b border-white/10 bg-slate-900/50 backdrop-blur-xl sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+      {/* Header */}
+      <header className="bg-slate-900/50 backdrop-blur-sm border-b border-slate-700">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
-            {/* Brand */}
-            <div className="flex items-center gap-8">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/50">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </div>
-                <div>
-                  <span className="text-lg font-bold text-white">MediBridge</span>
-                  <p className="text-xs text-cyan-400 font-medium">Healthcare Intelligence</p>
-                </div>
-              </div>
-
-              {/* Navigation */}
-              <div className="hidden md:flex items-center gap-2">
-                <Link href={`/${org}/dashboard`} className="px-4 py-2 text-sm font-semibold text-white bg-white/10 rounded-lg">
-                  Dashboard
-                </Link>
-                <Link href={`/${org}/prescriptions`} className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
-                  Prescriptions
-                </Link>
-                <Link href={`/${org}/profile`} className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
-                  Profile
-                </Link>
-              </div>
-            </div>
-
-            {/* User Actions */}
             <div className="flex items-center gap-3">
-              <div className="hidden sm:flex items-center gap-3 px-4 py-2 bg-white/5 rounded-xl border border-white/10">
-                <div className="w-8 h-8 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-lg flex items-center justify-center">
-                  <span className="text-white font-bold text-xs">
-                  {(user.user_metadata?.full_name || 'Test User').split(' ').map((n: string) => n[0]).join('').toUpperCase()}
-                  </span>
-                </div>
-                <span className="text-sm font-semibold text-white">{user.user_metadata?.full_name || 'Test User'}</span>
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-lg flex items-center justify-center">
+                <FileText className="w-6 h-6 text-white" />
               </div>
-              <form action={handleSignOut}>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
-                >
-                  Logout
-                </button>
-              </form>
+              <div>
+                <h1 className="text-xl font-bold text-white">MediBridge</h1>
+                <p className="text-xs text-cyan-400">Healthcare Intelligence</p>
+              </div>
             </div>
+            <nav className="flex items-center gap-6">
+              <button className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium">
+                Dashboard
+              </button>
+              <button 
+                onClick={() => router.push(`/${org}/prescriptions`)}
+                className="text-slate-300 hover:text-white text-sm"
+              >
+                Prescriptions
+              </button>
+              <button className="text-slate-300 hover:text-white text-sm">Profile</button>
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 rounded-lg">
+                <span className="text-white text-sm font-medium">
+                  {user?.user_metadata?.full_name?.split(' ')[0] || 'User'}
+                </span>
+              </div>
+            </nav>
           </div>
         </div>
-      </nav>
+      </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-12">
-        
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Hero Section */}
-        <div className="mb-12">
-          <h1 className="text-5xl md:text-6xl font-bold text-white mb-4">
-            Healthcare That <br />
-            <span className="bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+        <div className="text-center mb-12">
+          <h2 className="text-4xl md:text-5xl font-bold text-white mb-4">
+            Healthcare That
+            <span className="block text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400">
               Never Sleeps
             </span>
-          </h1>
-          <p className="text-xl text-gray-300 max-w-2xl">
-            Your 24/7 AI-powered healthcare companion. Get instant prescription analysis, smart reminders, and personalized guidance.
+          </h2>
+          <p className="text-slate-300 text-lg max-w-2xl mx-auto">
+            Your 24/7 AI-powered healthcare companion. Get instant prescription analysis, 
+            medicine information, and personalized health guidance in your preferred language.
           </p>
         </div>
 
-        {/* Stats Grid - Like Main Website */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12">
-          <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-            <p className="text-cyan-400 text-sm font-semibold mb-2">Total Uploads</p>
-            <p className="text-4xl font-bold text-white mb-1">{totalPrescriptions}</p>
-            <p className="text-gray-400 text-xs">Prescriptions analyzed</p>
+        {/* Stats Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
+          <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-700">
+            <p className="text-cyan-400 text-xs font-medium mb-1">Total Uploads</p>
+            <p className="text-3xl font-bold text-white">{stats.total}</p>
+            <p className="text-slate-400 text-xs">Documents analyzed</p>
           </div>
-
-          <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-            <p className="text-green-400 text-sm font-semibold mb-2">Completed</p>
-            <p className="text-4xl font-bold text-white mb-1">{analyzedCount}</p>
-            <p className="text-gray-400 text-xs">Ready to view</p>
+          <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-700">
+            <p className="text-green-400 text-xs font-medium mb-1">Completed</p>
+            <p className="text-3xl font-bold text-white">{stats.completed}</p>
+            <p className="text-slate-400 text-xs">Ready to view</p>
           </div>
-
-          <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-            <p className="text-amber-400 text-sm font-semibold mb-2">Processing</p>
-            <p className="text-4xl font-bold text-white mb-1">{pendingCount}</p>
-            <p className="text-gray-400 text-xs">In queue</p>
+          <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-700">
+            <p className="text-orange-400 text-xs font-medium mb-1">Processing</p>
+            <p className="text-3xl font-bold text-white">{stats.processing}</p>
+            <p className="text-slate-400 text-xs">In queue</p>
           </div>
-
-          <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-            <p className="text-purple-400 text-sm font-semibold mb-2">Success Rate</p>
-            <p className="text-4xl font-bold text-white mb-1">98%</p>
-            <p className="text-gray-400 text-xs">Accuracy score</p>
+          <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-700">
+            <p className="text-purple-400 text-xs font-medium mb-1">Success Rate</p>
+            <p className="text-3xl font-bold text-white">{stats.successRate}%</p>
+            <p className="text-slate-400 text-xs">Accuracy score</p>
           </div>
         </div>
 
-        {/* Primary CTA - Upload Prescription */}
-        <div className="mb-12 relative group overflow-hidden rounded-3xl bg-gradient-to-br from-cyan-500 via-blue-500 to-blue-600 p-12 shadow-2xl shadow-cyan-500/20">
-          {/* Animated background effect */}
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"></div>
-          
-          <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
-            <div className="flex-1">
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/20 backdrop-blur-sm rounded-full mb-6">
-                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                <span className="text-sm font-semibold text-white">AI Ready • 9+ Languages</span>
-              </div>
-              <h2 className="text-4xl font-bold text-white mb-4">
-                Upload Your Prescription
-              </h2>
-              <p className="text-blue-100 text-lg mb-8 leading-relaxed">
-                Get instant AI-powered analysis, medicine information, and personalized health guidance in your preferred language
-              </p>
-              <Link
-                href={`/${org}/upload`}
-                className="inline-flex items-center gap-3 px-8 py-4 bg-white text-blue-600 font-bold rounded-xl hover:bg-blue-50 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105"
+        {/* Upload Options - 4 Cards */}
+        <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm rounded-2xl p-8 border border-slate-700 mb-12">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="px-3 py-1 bg-cyan-500/20 text-cyan-400 text-xs font-medium rounded-full">
+              AI Ready • 8+ Languages
+            </span>
+          </div>
+          <h3 className="text-2xl font-bold text-white mb-2">How can we help you today?</h3>
+          <p className="text-slate-400 mb-8">
+            Choose an option below to get started with your health query
+          </p>
+
+          {/* 4 Option Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {uploadOptions.map((option) => (
+              <button
+                key={option.id}
+                onClick={() => handleOptionClick(option)}
+                disabled={!option.enabled}
+                className={`relative p-6 rounded-xl border-2 transition-all duration-200 text-left
+                  ${option.enabled 
+                    ? `${option.bgColor} ${option.borderColor} cursor-pointer transform hover:scale-[1.02]` 
+                    : 'bg-slate-800/50 border-slate-700 cursor-not-allowed opacity-60'
+                  }`}
               >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                <span>Upload Now</span>
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                </svg>
-              </Link>
-            </div>
-
-            {/* Decorative element */}
-            <div className="hidden lg:block relative">
-              <div className="w-64 h-64">
-                <div className="absolute inset-0 bg-white/10 backdrop-blur-lg rounded-3xl border border-white/20 rotate-6 group-hover:rotate-12 transition-transform duration-700"></div>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <svg className="w-32 h-32 text-white/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
+                {option.comingSoon && (
+                  <span className="absolute top-3 right-3 px-2 py-0.5 bg-orange-500/20 text-orange-400 text-xs font-medium rounded-full">
+                    Coming Soon
+                  </span>
+                )}
+                <div className={`${option.color} mb-4`}>
+                  {option.icon}
                 </div>
-              </div>
-            </div>
+                <h4 className={`font-semibold mb-2 ${option.enabled ? 'text-slate-800' : 'text-slate-400'}`}>
+                  {option.title}
+                </h4>
+                <p className={`text-sm ${option.enabled ? 'text-slate-600' : 'text-slate-500'}`}>
+                  {option.description}
+                </p>
+                {option.enabled && !option.comingSoon && (
+                  <div className={`mt-4 flex items-center gap-1 text-sm font-medium ${option.color}`}>
+                    Get Started <ArrowRight className="w-4 h-4" />
+                  </div>
+                )}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Feature Grid - Matching Main Website Style */}
-        <div className="mb-12">
-          <h2 className="text-3xl font-bold text-white mb-8">Quick Access</h2>
-          <div className="grid md:grid-cols-3 gap-6">
-            
-            {/* AI Assistant */}
-            <Link
-              href={`/${org}/chat`}
-              className="group relative bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-xl rounded-3xl p-8 border border-white/10 hover:border-cyan-500/50 transition-all duration-500 overflow-hidden"
-            >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700"></div>
-              <div className="relative">
-                <div className="w-16 h-16 bg-gradient-to-br from-cyan-400 to-cyan-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-cyan-500/30 group-hover:scale-110 transition-transform duration-300">
-                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                  </svg>
-                </div>
-                <h3 className="text-xl font-bold text-white mb-3 group-hover:text-cyan-400 transition-colors">
-                  AI Health Assistant
-                </h3>
-                <p className="text-gray-400 mb-6 leading-relaxed">
-                  24/7 multilingual support for all your medicine and health queries
-                </p>
-                <div className="flex items-center text-cyan-400 font-semibold group-hover:translate-x-2 transition-transform">
-                  <span>Start Chat</span>
-                  <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-            {/* Lab Tests - Coming Soon */}
-            <div className="relative bg-gradient-to-br from-slate-800/30 to-slate-900/30 backdrop-blur-xl rounded-3xl p-8 border-2 border-dashed border-purple-500/30 overflow-hidden">
-              <div className="absolute top-4 right-4">
-                <span className="px-3 py-1 bg-purple-500/20 text-purple-300 text-xs font-bold rounded-full border border-purple-500/30">
-                  Coming Soon
-                </span>
-              </div>
-              <div className="w-16 h-16 bg-gradient-to-br from-purple-400 to-purple-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-purple-500/20 opacity-50">
-                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-bold text-gray-400 mb-3">
-                Book Lab Tests
-              </h3>
-              <p className="text-gray-500 leading-relaxed">
-                Home sample collection with certified labs at competitive prices
-              </p>
-            </div>
-
-            {/* Health Profile */}
-            <Link
-              href={`/${org}/profile`}
-              className="group relative bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-xl rounded-3xl p-8 border border-white/10 hover:border-blue-500/50 transition-all duration-500 overflow-hidden"
-            >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700"></div>
-              <div className="relative">
-                <div className="w-16 h-16 bg-gradient-to-br from-blue-400 to-blue-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-blue-500/30 group-hover:scale-110 transition-transform duration-300">
-                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                </div>
-                <h3 className="text-xl font-bold text-white mb-3 group-hover:text-blue-400 transition-colors">
-                  Health Profile
-                </h3>
-                <p className="text-gray-400 mb-6 leading-relaxed">
-                  Manage your medical history, allergies, and health preferences
-                </p>
-                <div className="flex items-center text-blue-400 font-semibold group-hover:translate-x-2 transition-transform">
-                  <span>View Profile</span>
-                  <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
-          </div>
-        </div>
-
-        {/* Prescriptions Section */}
-        <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden">
-          <div className="px-8 py-6 border-b border-white/10">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/30">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold text-white">My Prescriptions</h2>
-                  <p className="text-sm text-gray-400 mt-1">Your healthcare journey at a glance</p>
-                </div>
-              </div>
-              {prescriptions && prescriptions.length > 0 && (
-                <Link 
-                  href={`/${org}/prescriptions`}
-                  className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold rounded-xl hover:from-cyan-600 hover:to-blue-600 shadow-lg hover:shadow-cyan-500/50 transition-all duration-300"
+        {/* Recent Activity */}
+        {prescriptions.length > 0 && (
+          <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-6 border border-slate-700">
+            <h3 className="text-lg font-semibold text-white mb-4">Recent Activity</h3>
+            <div className="space-y-3">
+              {prescriptions.slice(0, 5).map((prescription) => (
+                <button
+                  key={prescription.id}
+                  onClick={() => router.push(`/${org}/chat?prescription_id=${prescription.id}&session=${prescription.id}`)}
+                  className="w-full flex items-center justify-between p-4 bg-slate-700/50 rounded-lg hover:bg-slate-700 transition-colors text-left"
                 >
-                  View All
-                </Link>
-              )}
-            </div>
-          </div>
-
-          {!prescriptions || prescriptions.length === 0 ? (
-            <div className="px-8 py-20 text-center">
-              <div className="w-32 h-32 bg-gradient-to-br from-slate-700 to-slate-800 rounded-3xl flex items-center justify-center mx-auto mb-6">
-                <svg className="w-16 h-16 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              </div>
-              <h3 className="text-2xl font-bold text-white mb-3">Start Your Healthcare Journey</h3>
-              <p className="text-gray-400 text-lg mb-8 max-w-xl mx-auto">
-                Upload your first prescription to unlock AI-powered analysis and personalized health guidance
-              </p>
-              <Link
-                href={`/${org}/upload`}
-                className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-bold rounded-xl hover:from-cyan-600 hover:to-blue-600 shadow-xl hover:shadow-cyan-500/50 transition-all duration-300 hover:scale-105"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                Upload First Prescription
-              </Link>
-            </div>
-          ) : (
-            <div className="divide-y divide-white/5">
-              {prescriptions.map((prescription) => (
-                <div 
-                  key={prescription.id} 
-                  className="px-8 py-5 hover:bg-white/5 transition-colors group"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-5 flex-1">
-                      <div className="w-14 h-14 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg shadow-cyan-500/20 group-hover:scale-110 transition-transform duration-300">
-                        {prescription.file_type?.includes('pdf') ? (
-                          <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                          </svg>
-                        ) : (
-                          <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-base font-bold text-white mb-1">
-                          Prescription #{prescription.id.slice(0, 8)}
-                        </p>
-                        <p className="text-sm text-gray-400">
-                          {new Date(prescription.created_at).toLocaleDateString('en-IN', {
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric'
-                          })} • {new Date(prescription.created_at).toLocaleTimeString('en-IN', {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </p>
-                      </div>
+                  <div className="flex items-center gap-4">
+                    <div className={`p-2 rounded-lg ${
+                      prescription.document_type === 'lab_report' 
+                        ? 'bg-emerald-500/20' 
+                        : 'bg-blue-500/20'
+                    }`}>
+                      {prescription.document_type === 'lab_report' 
+                        ? <FlaskConical className="w-5 h-5 text-emerald-400" />
+                        : <FileText className="w-5 h-5 text-blue-400" />
+                      }
                     </div>
-                    
-                    <div className="flex items-center gap-4">
-                      <span className={`px-4 py-2 text-sm font-bold rounded-xl ${
-                        prescription.status === 'analyzed' 
-                          ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
-                          : prescription.status === 'pending'
-                          ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                          : 'bg-gray-500/20 text-gray-400 border border-gray-500/30'
-                      }`}>
-                        {prescription.status === 'analyzed' ? '✓ Analyzed' : 
-                         prescription.status === 'pending' ? '○ Processing' : 
-                         'New'}
-                      </span>
-                      
-                      <Link
-                        href={`/${org}/chat?prescription_id=${prescription.id}&session=${prescription.id}`}
-                        className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold rounded-xl hover:from-cyan-600 hover:to-blue-600 shadow-lg hover:shadow-cyan-500/50 transition-all duration-300"
-                      >
-                        View Details
-                      </Link>
+                    <div>
+                      <p className="text-white font-medium">
+                        {prescription.chief_complaint || 'Document Analysis'}
+                      </p>
+                      <p className="text-slate-400 text-sm">
+                        {new Date(prescription.created_at).toLocaleDateString('en-IN', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
                     </div>
                   </div>
-                </div>
+                  <div className="flex items-center gap-3">
+                    {prescription.status === 'completed' || prescription.status === 'analyzed' ? (
+                      <span className="flex items-center gap-1 text-green-400 text-sm">
+                        <CheckCircle2 className="w-4 h-4" /> Analyzed
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-orange-400 text-sm">
+                        <Clock className="w-4 h-4" /> Processing
+                      </span>
+                    )}
+                    <ArrowRight className="w-4 h-4 text-slate-400" />
+                  </div>
+                </button>
               ))}
             </div>
-          )}
-        </div>
-
-        {/* Trust Indicators - Matching Main Website */}
-        <div className="mt-12 grid md:grid-cols-3 gap-6">
-          <div className="flex items-center gap-4 p-6 bg-gradient-to-br from-slate-800/30 to-slate-900/30 backdrop-blur-xl rounded-2xl border border-white/10">
-            <div className="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center border border-green-500/30">
-              <svg className="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-            </div>
-            <div>
-              <p className="font-bold text-white">100% Secure</p>
-              <p className="text-sm text-gray-400">Bank-grade encryption</p>
-            </div>
           </div>
-
-          <div className="flex items-center gap-4 p-6 bg-gradient-to-br from-slate-800/30 to-slate-900/30 backdrop-blur-xl rounded-2xl border border-white/10">
-            <div className="w-12 h-12 bg-cyan-500/20 rounded-xl flex items-center justify-center border border-cyan-500/30">
-              <svg className="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div>
-              <p className="font-bold text-white">24/7 Available</p>
-              <p className="text-sm text-gray-400">Always here to help</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4 p-6 bg-gradient-to-br from-slate-800/30 to-slate-900/30 backdrop-blur-xl rounded-2xl border border-white/10">
-            <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center border border-purple-500/30">
-              <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
-              </svg>
-            </div>
-            <div>
-              <p className="font-bold text-white">9+ Languages</p>
-              <p className="text-sm text-gray-400">Multilingual support</p>
-            </div>
-          </div>
-        </div>
+        )}
       </main>
+
+      {/* Upload Modal */}
+      {showUploadModal && selectedOption && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className={`p-6 border-b ${selectedOption.bgColor.replace('hover:bg-', '')}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={selectedOption.color}>
+                    {selectedOption.icon}
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-800">
+                      Upload {selectedOption.title}
+                    </h3>
+                    <p className="text-sm text-slate-600">
+                      {selectedUploadType === 'prescription' 
+                        ? 'Get medicine analysis and dosage guidance'
+                        : 'Get detailed lab result interpretation'
+                      }
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={closeModal}
+                  className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-slate-500" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-6">
+              {/* File Upload Area */}
+              <div
+                onDragEnter={handleDrag}
+                onDragLeave={handleDrag}
+                onDragOver={handleDrag}
+                onDrop={handleDrop}
+                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors
+                  ${dragActive 
+                    ? 'border-blue-500 bg-blue-50' 
+                    : uploadFile 
+                      ? 'border-green-500 bg-green-50'
+                      : 'border-slate-300 hover:border-slate-400'
+                  }`}
+              >
+                {uploadFile ? (
+                  <div className="space-y-2">
+                    <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+                      <CheckCircle2 className="w-6 h-6 text-green-600" />
+                    </div>
+                    <p className="font-medium text-slate-800">{uploadFile.name}</p>
+                    <p className="text-sm text-slate-500">
+                      {(uploadFile.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                    <button
+                      onClick={() => setUploadFile(null)}
+                      className="text-red-500 text-sm hover:underline"
+                    >
+                      Remove file
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto">
+                      <Upload className="w-6 h-6 text-slate-400" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-800">
+                        Drag & drop your file here
+                      </p>
+                      <p className="text-sm text-slate-500">or click to browse</p>
+                    </div>
+                    <input
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      onChange={handleFileSelect}
+                      className="hidden"
+                      id="file-upload"
+                    />
+                    <div className="flex items-center justify-center gap-3">
+                      <label
+                        htmlFor="file-upload"
+                        className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium text-slate-700 cursor-pointer transition-colors"
+                      >
+                        <File className="w-4 h-4 inline mr-2" />
+                        Browse Files
+                      </label>
+                      <button className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium text-slate-700 transition-colors">
+                        <Camera className="w-4 h-4 inline mr-2" />
+                        Take Photo
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      Supported: PDF, JPG, PNG (Max 10MB)
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Question/Concern Input */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  What would you like to know? (Optional)
+                </label>
+                <textarea
+                  value={chiefComplaint}
+                  onChange={(e) => setChiefComplaint(e.target.value)}
+                  placeholder={selectedUploadType === 'prescription'
+                    ? "e.g., Explain my medicines and their side effects..."
+                    : "e.g., Are my test results normal? What should I be concerned about?"
+                  }
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                  rows={3}
+                />
+              </div>
+
+              {/* Submit Button */}
+              <button
+                onClick={handleUploadAndAnalyze}
+                disabled={!uploadFile || uploading}
+                className={`w-full py-4 rounded-xl font-semibold text-white transition-all
+                  ${!uploadFile || uploading
+                    ? 'bg-slate-300 cursor-not-allowed'
+                    : selectedUploadType === 'prescription'
+                      ? 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600'
+                      : 'bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600'
+                  }`}
+              >
+                {uploading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Analyzing...
+                  </span>
+                ) : (
+                  <span className="flex items-center justify-center gap-2">
+                    Analyze {selectedUploadType === 'prescription' ? 'Prescription' : 'Lab Report'}
+                    <ArrowRight className="w-5 h-5" />
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
