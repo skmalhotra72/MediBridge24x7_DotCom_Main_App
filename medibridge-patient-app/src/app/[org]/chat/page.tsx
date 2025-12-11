@@ -7,7 +7,7 @@ import {
   ArrowLeft, Send, Loader2, User, Stethoscope, Calendar, 
   CheckCircle, Building2, Phone, FileText, ChevronDown, 
   ChevronUp, Pill, AlertTriangle, FlaskConical, Clock,
-  MessageCircle, Bot, Sparkles
+  Bot, Sparkles
 } from 'lucide-react';
 
 // ============================================
@@ -117,7 +117,7 @@ const CollapsibleCard = ({
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   return (
-    <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-hidden transition-all duration-200">
+    <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-hidden">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-700/30 transition-colors"
@@ -145,7 +145,7 @@ const CollapsibleCard = ({
       )}
       
       {isExpanded && (
-        <div className="px-4 pb-4 border-t border-slate-700/50 pt-3 animate-slideDown">
+        <div className="px-4 pb-4 border-t border-slate-700/50 pt-3">
           {children}
         </div>
       )}
@@ -334,12 +334,12 @@ const PrescriptionDetails = ({
 }: PrescriptionDetailsProps) => {
   return (
     <div className="space-y-3">
-      {/* 1. Prescription Analysis (Collapsible) */}
+      {/* 1. Prescription Analysis (Collapsible - Collapsed by default) */}
       <CollapsibleCard
         title="Prescription Analysis"
         icon={<CheckCircle className="w-4 h-4" />}
         iconColor="text-green-400"
-        defaultExpanded={true}
+        defaultExpanded={false}
         preview={
           <p className="text-slate-400 text-xs">
             {prescription?.patient_name || 'Patient'} • {prescription?.patient_age || '-'} • {prescription?.status === 'analyzed' ? '✓ Analyzed' : 'Processing'}
@@ -609,12 +609,6 @@ const PrescriptionDetails = ({
           )}
         </div>
       </CollapsibleCard>
-
-      {/* Footer */}
-      <div className="text-center py-4">
-        <p className="text-green-400 text-sm font-medium">सर्वे सन्तु निरामया:</p>
-        <p className="text-orange-400 text-xs mt-1">"May all be free from illness"</p>
-      </div>
     </div>
   );
 };
@@ -663,13 +657,23 @@ export default function ChatPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const { data: orgData } = await supabase
+        // Fetch organization name
+        const { data: orgData, error: orgError } = await supabase
           .from('organizations')
           .select('name')
           .eq('slug', org)
           .single();
         
-        if (orgData) setOrgName(orgData.name);
+        if (orgError) {
+          console.error('Error fetching organization:', orgError);
+        }
+        
+        if (orgData?.name) {
+          setOrgName(orgData.name);
+        } else {
+          // Fallback: capitalize the slug
+          setOrgName(org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
+        }
 
         if (!prescriptionId) {
           setLoading(false);
@@ -907,7 +911,7 @@ export default function ChatPage() {
   // Loading
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+      <div className="fixed inset-0 bg-slate-950 flex items-center justify-center z-[9999]">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-white text-lg">Loading your prescription...</p>
@@ -917,33 +921,40 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="fixed inset-0 bg-slate-950 flex flex-col z-[9999]">
       
       {/* ============================================ */}
-      {/* HEADER */}
+      {/* FIXED TOP HEADER - Full Width */}
       {/* ============================================ */}
-      <header className="bg-slate-900 border-b border-slate-800 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            <h1 className="text-lg font-bold text-white">{orgName || 'MediBridge'}</h1>
-            <button
-              onClick={() => router.push(`/${org}/dashboard`)}
-              className="text-slate-400 hover:text-white flex items-center gap-1 text-sm transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Back</span>
-            </button>
-          </div>
+      <header className="bg-slate-900 border-b border-slate-800 flex-shrink-0">
+        <div className="px-4 py-3 flex items-center justify-between relative">
+          {/* Left: MediBridge */}
+          <h1 className="text-lg font-bold text-white">MediBridge</h1>
+          
+          {/* Center: Organization Name */}
+          <h2 className="text-lg font-bold text-cyan-400 absolute left-1/2 transform -translate-x-1/2">
+            {orgName || 'Loading...'}
+          </h2>
+          
+          {/* Right: Back Button */}
+          <button
+            onClick={() => router.push(`/${org}/dashboard`)}
+            className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 text-sm transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back</span>
+          </button>
         </div>
       </header>
 
       {/* ============================================ */}
-      {/* DESKTOP: SPLIT LAYOUT (40/60) */}
+      {/* DESKTOP LAYOUT */}
       {/* ============================================ */}
-      <div className="hidden lg:flex h-[calc(100vh-57px)]">
+      <div className="hidden lg:flex flex-1 overflow-hidden">
         
-        {/* LEFT PANEL - PRESCRIPTION DETAILS (40%) */}
-        <div className="w-[40%] border-r border-slate-800 bg-slate-900/50 flex flex-col">
+        {/* LEFT PANEL - SCROLLABLE MIDDLE */}
+        <div className="w-[40%] flex flex-col bg-slate-900/50">
+          {/* Left Panel Header */}
           <div className="p-4 border-b border-slate-800 flex-shrink-0">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center">
@@ -956,7 +967,8 @@ export default function ChatPage() {
             </div>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-4">
+          {/* Left Panel Scrollable Content */}
+          <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
             <PrescriptionDetails
               prescription={prescription}
               medicines={medicines}
@@ -967,11 +979,18 @@ export default function ChatPage() {
               getAiSummary={getAiSummary}
             />
           </div>
+          
+          {/* Left Panel Fixed Footer */}
+          <div className="border-t border-slate-800 p-3 flex-shrink-0 bg-slate-900/80">
+            <p className="text-green-400 text-sm font-medium text-center">सर्वे सन्तु निरामया:</p>
+            <p className="text-orange-400 text-xs text-center mt-0.5">"May all be free from illness"</p>
+          </div>
         </div>
 
-        {/* RIGHT PANEL - CHAT (60%) */}
-        <div className="flex-1 flex flex-col bg-slate-950">
-          {/* Chat Header */}
+        {/* RIGHT PANEL - CHAT */}
+        <div className="w-[60%] flex flex-col bg-slate-950">
+          
+          {/* Right Panel Header */}
           <div className="p-4 border-b border-slate-800 flex-shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1005,13 +1024,13 @@ export default function ChatPage() {
             </div>
           </div>
 
-          {/* Chat Messages */}
-          <div className="flex-1 overflow-y-auto p-4">
+          {/* Right Panel Scrollable Messages */}
+          <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
             <div className="max-w-3xl mx-auto space-y-4">
               {messages.map((message) => (
                 <div
                   key={message.id}
-                  className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} animate-messageIn`}
+                  className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   {message.role === 'assistant' && (
                     <div className="flex-shrink-0 mr-3">
@@ -1074,63 +1093,67 @@ export default function ChatPage() {
             </div>
           </div>
 
-          {/* Suggested Questions */}
-          <div className="px-4 py-3 border-t border-slate-800/50 flex-shrink-0">
-            <div className="max-w-3xl mx-auto">
-              <p className="text-slate-500 text-xs mb-2">Quick questions:</p>
-              <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          {/* Right Panel Fixed Footer - Input + Quick Questions */}
+          <div className="border-t border-slate-800 flex-shrink-0 bg-slate-950">
+            {/* Input Area */}
+            <div className="p-4 pb-2">
+              <div className="max-w-3xl mx-auto">
+                <div className="flex gap-3 items-end">
+                  <div className="flex-1 relative">
+                    <textarea
+                      value={inputValue}
+                      onChange={(e) => {
+                        setInputValue(e.target.value);
+                        e.target.style.height = 'auto';
+                        e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSendMessage();
+                        }
+                      }}
+                      placeholder="Ask anything about your prescription..."
+                      disabled={sending}
+                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-2xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 disabled:opacity-50 transition-all resize-none text-sm"
+                      rows={1}
+                      style={{ minHeight: '48px', maxHeight: '120px' }}
+                    />
+                  </div>
+                  <button
+                    onClick={() => handleSendMessage()}
+                    disabled={sending || !inputValue.trim()}
+                    className="p-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/40 hover:scale-105 flex-shrink-0"
+                  >
+                    {sending ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Send className="w-5 h-5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Questions - Below Input, Smaller & Brighter */}
+            <div className="px-4 pb-2">
+              <div className="max-w-3xl mx-auto flex gap-1.5 overflow-x-auto scrollbar-hide">
                 {suggestedQuestions.slice(0, 4).map((question, index) => (
                   <button
                     key={index}
                     onClick={() => handleSendMessage(question)}
                     disabled={sending}
-                    className="flex-shrink-0 px-4 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white text-xs rounded-full border border-slate-700 hover:border-cyan-500/50 transition-all duration-200 disabled:opacity-50 whitespace-nowrap"
+                    className="flex-shrink-0 px-2.5 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 hover:text-cyan-300 text-[11px] rounded-full border border-cyan-500/30 hover:border-cyan-400/50 transition-all duration-200 disabled:opacity-50 whitespace-nowrap"
                   >
-                    {question.length > 40 ? question.substring(0, 40) + '...' : question}
+                    {question.length > 35 ? question.substring(0, 35) + '...' : question}
                   </button>
                 ))}
               </div>
             </div>
-          </div>
 
-          {/* Input Area */}
-          <div className="p-4 border-t border-slate-800 flex-shrink-0">
-            <div className="max-w-3xl mx-auto">
-              <div className="flex gap-3 items-end">
-                <div className="flex-1 relative">
-                  <textarea
-                    value={inputValue}
-                    onChange={(e) => {
-                      setInputValue(e.target.value);
-                      e.target.style.height = 'auto';
-                      e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendMessage();
-                      }
-                    }}
-                    placeholder="Ask anything about your prescription..."
-                    disabled={sending}
-                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-2xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 disabled:opacity-50 transition-all resize-none text-sm"
-                    rows={1}
-                    style={{ minHeight: '48px', maxHeight: '120px' }}
-                  />
-                </div>
-                <button
-                  onClick={() => handleSendMessage()}
-                  disabled={sending || !inputValue.trim()}
-                  className="p-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/40 hover:scale-105 flex-shrink-0"
-                >
-                  {sending ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <Send className="w-5 h-5" />
-                  )}
-                </button>
-              </div>
-              <p className="text-center text-slate-500 text-xs mt-3">
+            {/* Footer hint */}
+            <div className="pb-3">
+              <p className="text-center text-slate-500 text-xs">
                 Press Enter to send • Shift+Enter for new line
               </p>
             </div>
@@ -1139,9 +1162,9 @@ export default function ChatPage() {
       </div>
 
       {/* ============================================ */}
-      {/* MOBILE: SINGLE SCROLL LAYOUT */}
+      {/* MOBILE LAYOUT - Single Scroll */}
       {/* ============================================ */}
-      <div className="lg:hidden">
+      <div className="lg:hidden flex-1 overflow-y-auto">
         <div className="p-4 space-y-4">
           
           {/* Chat Header - Mobile */}
@@ -1217,11 +1240,7 @@ export default function ChatPage() {
                   </div>
                   
                   <p className={`text-[9px] mt-1.5 ${message.role === 'user' ? 'text-cyan-200/70' : 'text-slate-500'}`}>
-                    {message.timestamp.toLocaleTimeString('en-IN', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: true
-                    })}
+                    {message.timestamp.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
                   </p>
                 </div>
                 
@@ -1234,23 +1253,6 @@ export default function ChatPage() {
                 )}
               </div>
             ))}
-          </div>
-
-          {/* Suggested Questions - Mobile */}
-          <div className="pt-2">
-            <p className="text-slate-500 text-xs mb-2">Quick questions:</p>
-            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-              {suggestedQuestions.slice(0, 4).map((question, index) => (
-                <button
-                  key={index}
-                  onClick={() => handleSendMessage(question)}
-                  disabled={sending}
-                  className="flex-shrink-0 px-3 py-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs rounded-full border border-slate-700 transition-all disabled:opacity-50 whitespace-nowrap"
-                >
-                  {question.length > 30 ? question.substring(0, 30) + '...' : question}
-                </button>
-              ))}
-            </div>
           </div>
 
           {/* Input Area - Mobile */}
@@ -1271,30 +1273,39 @@ export default function ChatPage() {
                 }}
                 placeholder="Ask anything..."
                 disabled={sending}
-                className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 disabled:opacity-50 transition-all resize-none text-sm"
+                className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 disabled:opacity-50 resize-none text-sm"
                 rows={1}
                 style={{ minHeight: '40px', maxHeight: '100px' }}
               />
               <button
                 onClick={() => handleSendMessage()}
                 disabled={sending || !inputValue.trim()}
-                className="p-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                className="p-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-xl disabled:opacity-50 flex-shrink-0"
               >
-                {sending ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <Send className="w-5 h-5" />
-                )}
+                {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
               </button>
             </div>
+            
+            {/* Quick Questions - Below Input, Smaller & Brighter - Mobile */}
+            <div className="flex gap-1.5 overflow-x-auto pt-2 scrollbar-hide">
+              {suggestedQuestions.slice(0, 4).map((question, index) => (
+                <button
+                  key={index}
+                  onClick={() => handleSendMessage(question)}
+                  disabled={sending}
+                  className="flex-shrink-0 px-2 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-[10px] rounded-full border border-cyan-500/30 whitespace-nowrap"
+                >
+                  {question.length > 25 ? question.substring(0, 25) + '...' : question}
+                </button>
+              ))}
+            </div>
+            
             <p className="text-center text-slate-500 text-[10px] mt-2">
               Press Enter to send • Shift+Enter for new line
             </p>
           </div>
 
-          {/* ============================================ */}
-          {/* PRESCRIPTION DETAILS - BELOW CHAT ON MOBILE */}
-          {/* ============================================ */}
+          {/* Prescription Details - Below Chat on Mobile */}
           <div className="pt-4 border-t border-slate-800">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center">
@@ -1315,53 +1326,27 @@ export default function ChatPage() {
               formatDate={formatDate}
               getAiSummary={getAiSummary}
             />
-          </div>
 
+            {/* Sanskrit Footer - Mobile */}
+            <div className="text-center py-4 mt-4">
+              <p className="text-green-400 text-sm font-medium">सर्वे सन्तु निरामया:</p>
+              <p className="text-orange-400 text-xs mt-1">"May all be free from illness"</p>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* ============================================ */}
-      {/* GLOBAL STYLES */}
-      {/* ============================================ */}
+      {/* Global Styles */}
       <style jsx global>{`
-        @keyframes slideDown {
-          from { opacity: 0; max-height: 0; }
-          to { opacity: 1; max-height: 500px; }
-        }
-        
-        @keyframes messageIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .animate-slideDown {
-          animation: slideDown 0.2s ease-out forwards;
-        }
-        
-        .animate-messageIn {
-          animation: messageIn 0.3s ease-out forwards;
-        }
-        
         .scrollbar-hide::-webkit-scrollbar {
           display: none;
         }
-        
         .scrollbar-hide {
           -ms-overflow-style: none;
           scrollbar-width: none;
         }
-        
-        .line-clamp-1 {
-          display: -webkit-box;
-          -webkit-line-clamp: 1;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
-        }
-        
-        .line-clamp-2 {
-          display: -webkit-box;
-          -webkit-line-clamp: 2;
-          -webkit-box-orient: vertical;
+        /* Override any parent container styles */
+        body {
           overflow: hidden;
         }
       `}</style>
