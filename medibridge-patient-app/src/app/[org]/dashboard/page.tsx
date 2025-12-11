@@ -3,11 +3,30 @@
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { ArrowRight, FileText, FlaskConical, MessageCircle, Mic, Upload, Camera, X, Check, Loader2 } from 'lucide-react';
+import { ArrowRight, FileText, FlaskConical, MessageCircle, Mic, Upload, Camera, X, Check, Loader2, User } from 'lucide-react';
+import PatientSelector, { PatientInfoBadge } from '@/components/PatientSelector';
 
 // ============================================================
 // TYPES
 // ============================================================
+
+interface Patient {
+  id: string;
+  auth_user_id: string;
+  full_name: string;
+  patient_name?: string;
+  gender: string | null;
+  date_of_birth: string | null;
+  age: number | null;
+  age_unit: string;
+  relationship: string;
+  blood_group: string | null;
+  known_allergies: string[];
+  chronic_conditions: string[];
+  health_summary: string | null;
+  last_summary_update: string | null;
+  created_at: string;
+}
 
 interface Prescription {
   id: string;
@@ -15,6 +34,7 @@ interface Prescription {
   status: string;
   created_at: string;
   document_type: string | null;
+  patient_id: string | null;
 }
 
 interface Stats {
@@ -142,7 +162,7 @@ const ServiceCards = ({
 };
 
 // ============================================================
-// PRESCRIPTION UPLOAD MODAL - Sky Blue Theme
+// UPLOAD MODAL COMPONENT
 // ============================================================
 
 interface UploadModalProps {
@@ -151,9 +171,10 @@ interface UploadModalProps {
   onSubmit: (file: File, question: string) => void;
   isUploading: boolean;
   type: 'prescription' | 'lab';
+  selectedPatient: Patient | null;
 }
 
-const UploadModal = ({ isOpen, onClose, onSubmit, isUploading, type }: UploadModalProps) => {
+const UploadModal = ({ isOpen, onClose, onSubmit, isUploading, type, selectedPatient }: UploadModalProps) => {
   const [file, setFile] = useState<File | null>(null);
   const [question, setQuestion] = useState('');
   const [dragActive, setDragActive] = useState(false);
@@ -253,6 +274,23 @@ const UploadModal = ({ isOpen, onClose, onSubmit, isUploading, type }: UploadMod
             </button>
           </div>
         </div>
+
+        {/* Selected Patient Badge */}
+        {selectedPatient && (
+          <div className="px-6 pt-4">
+            <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/30 rounded-lg px-3 py-2">
+              <User className="w-4 h-4 text-blue-400" />
+              <span className="text-blue-300 text-sm">Patient:</span>
+              <span className="text-white text-sm font-medium">{selectedPatient.full_name}</span>
+              {selectedPatient.gender && (
+                <span className="text-blue-400 text-xs">({selectedPatient.gender})</span>
+              )}
+              {selectedPatient.age && (
+                <span className="text-blue-400 text-xs">{selectedPatient.age}Y</span>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Content */}
         <div className="p-6 space-y-5">
@@ -385,12 +423,18 @@ export default function DashboardPage() {
   const supabase = createClient();
 
   // State
+  const [showPatientSelector, setShowPatientSelector] = useState(false);
+  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
+  const [pendingAction, setPendingAction] = useState<'prescription' | 'lab' | 'chat' | null>(null);
+  
   const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
   const [showLabReportModal, setShowLabReportModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [recentPrescriptions, setRecentPrescriptions] = useState<Prescription[]>([]);
   const [stats, setStats] = useState<Stats>({ total: 0, completed: 0, processing: 0, accuracy: 100 });
   const [orgName, setOrgName] = useState('');
+  const [orgId, setOrgId] = useState('');
+  const [userId, setUserId] = useState('');
   const [loading, setLoading] = useState(true);
 
   // Fetch data on mount
@@ -400,12 +444,13 @@ export default function DashboardPage() {
         // Get organization
         const { data: orgData } = await supabase
           .from('organizations')
-          .select('name')
+          .select('id, name')
           .eq('subdomain', org)
           .single();
         
         if (orgData) {
           setOrgName(orgData.name);
+          setOrgId(orgData.id);
         }
 
         // Get user
@@ -414,6 +459,7 @@ export default function DashboardPage() {
           router.push(`/${org}/auth`);
           return;
         }
+        setUserId(user.id);
 
         // Get prescriptions
         const { data: prescriptions } = await supabase
@@ -448,20 +494,41 @@ export default function DashboardPage() {
     fetchData();
   }, [org, router, supabase]);
 
+  // Handle action that requires patient selection
+  const handleActionWithPatient = (action: 'prescription' | 'lab' | 'chat') => {
+    setPendingAction(action);
+    setShowPatientSelector(true);
+  };
+
+  // After patient is selected
+  const handlePatientSelected = (patient: Patient) => {
+    setSelectedPatient(patient);
+    setShowPatientSelector(false);
+    
+    // Now proceed with the pending action
+    if (pendingAction === 'prescription') {
+      setShowPrescriptionModal(true);
+    } else if (pendingAction === 'lab') {
+      setShowLabReportModal(true);
+    } else if (pendingAction === 'chat') {
+      router.push(`/${org}/chat?patient_id=${patient.id}`);
+    }
+    
+    setPendingAction(null);
+  };
+
   // Handle file upload
   const handleUpload = async (file: File, question: string, documentType: 'prescription' | 'lab_report') => {
+    if (!selectedPatient) {
+      alert('Please select a patient first');
+      return;
+    }
+
     setIsUploading(true);
     
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
-
-      // Get organization ID
-      const { data: orgData } = await supabase
-        .from('organizations')
-        .select('id')
-        .eq('subdomain', org)
-        .single();
 
       // Upload file to storage
       const fileExt = file.name.split('.').pop();
@@ -478,17 +545,21 @@ export default function DashboardPage() {
         .from('prescriptions')
         .getPublicUrl(fileName);
 
-      // Create prescription record
+      // Create prescription record with patient_id
       const { data: prescription, error: insertError } = await supabase
         .from('prescriptions')
         .insert({
           user_id: user.id,
-          organization_id: orgData?.id,
+          organization_id: orgId,
+          patient_id: selectedPatient.id,  // Link to selected patient
           file_url: publicUrl,
           file_type: file.type,
           chief_complaint: question || 'Please analyze this document',
           status: 'pending',
-          document_type: documentType
+          document_type: documentType,
+          patient_name: selectedPatient.full_name,  // Store for easy access
+          patient_gender: selectedPatient.gender,
+          patient_age: selectedPatient.age ? `${selectedPatient.age}` : null
         })
         .select()
         .single();
@@ -509,9 +580,13 @@ export default function DashboardPage() {
           user_id: user.id,
           user_name: user.user_metadata?.name || 'User',
           user_email: user.email,
-          organization_id: orgData?.id,
+          organization_id: orgId,
           organization: org,
           clinic_name: orgName,
+          patient_id: selectedPatient.id,
+          patient_name: selectedPatient.full_name,
+          patient_gender: selectedPatient.gender,
+          patient_age: selectedPatient.age,
           chief_complaint: question || 'Please analyze this document',
           query: question || 'Please analyze this document',
           channel: 'web',
@@ -524,7 +599,7 @@ export default function DashboardPage() {
       setShowPrescriptionModal(false);
       setShowLabReportModal(false);
       
-      router.push(`/${org}/chat?prescription_id=${prescription.id}&session=${prescription.id}`);
+      router.push(`/${org}/chat?prescription_id=${prescription.id}&session=${prescription.id}&patient_id=${selectedPatient.id}`);
       
     } catch (error) {
       console.error('Upload error:', error);
@@ -532,11 +607,6 @@ export default function DashboardPage() {
     } finally {
       setIsUploading(false);
     }
-  };
-
-  // Handle chat only
-  const handleChatOnly = () => {
-    router.push(`/${org}/chat`);
   };
 
   // Format date
@@ -575,6 +645,19 @@ export default function DashboardPage() {
           </div>
           
           <nav className="flex items-center gap-4">
+            {/* Selected Patient Badge */}
+            {selectedPatient && (
+              <button
+                onClick={() => setShowPatientSelector(true)}
+                className="flex items-center gap-2 bg-blue-500/20 border border-blue-500/30 
+                         rounded-full px-3 py-1.5 hover:bg-blue-500/30 transition-colors"
+              >
+                <User className="w-4 h-4 text-blue-400" />
+                <span className="text-blue-300 text-sm font-medium">{selectedPatient.full_name}</span>
+                <span className="text-blue-400/70 text-xs">Change</span>
+              </button>
+            )}
+            
             <button className="text-cyan-400 text-sm font-medium">Dashboard</button>
             <button 
               onClick={() => router.push(`/${org}/prescriptions`)}
@@ -583,7 +666,6 @@ export default function DashboardPage() {
               Prescriptions
             </button>
             <button className="text-slate-400 hover:text-white text-sm">Profile</button>
-            <span className="bg-cyan-500 text-white text-xs px-2 py-1 rounded-full font-medium">Test</span>
           </nav>
         </div>
       </header>
@@ -629,11 +711,11 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Service Cards */}
+        {/* Service Cards - Now require patient selection first */}
         <ServiceCards
-          onPrescriptionClick={() => setShowPrescriptionModal(true)}
-          onLabReportClick={() => setShowLabReportModal(true)}
-          onChatClick={handleChatOnly}
+          onPrescriptionClick={() => handleActionWithPatient('prescription')}
+          onLabReportClick={() => handleActionWithPatient('lab')}
+          onChatClick={() => handleActionWithPatient('chat')}
         />
 
         {/* Recent Activity */}
@@ -645,7 +727,7 @@ export default function DashboardPage() {
               {recentPrescriptions.map((prescription) => (
                 <button
                   key={prescription.id}
-                  onClick={() => router.push(`/${org}/chat?prescription_id=${prescription.id}&session=${prescription.id}`)}
+                  onClick={() => router.push(`/${org}/chat?prescription_id=${prescription.id}&session=${prescription.id}${prescription.patient_id ? `&patient_id=${prescription.patient_id}` : ''}`)}
                   className="w-full flex items-center justify-between p-4 bg-slate-700/50 hover:bg-slate-700 
                              rounded-xl transition-colors text-left"
                 >
@@ -690,6 +772,18 @@ export default function DashboardPage() {
         </div>
       </main>
 
+      {/* Patient Selector Modal */}
+      <PatientSelector
+        isOpen={showPatientSelector}
+        onClose={() => {
+          setShowPatientSelector(false);
+          setPendingAction(null);
+        }}
+        onPatientSelected={handlePatientSelected}
+        userId={userId}
+        organizationId={orgId}
+      />
+
       {/* Upload Modals */}
       <UploadModal
         isOpen={showPrescriptionModal}
@@ -697,6 +791,7 @@ export default function DashboardPage() {
         onSubmit={(file, question) => handleUpload(file, question, 'prescription')}
         isUploading={isUploading}
         type="prescription"
+        selectedPatient={selectedPatient}
       />
 
       <UploadModal
@@ -705,6 +800,7 @@ export default function DashboardPage() {
         onSubmit={(file, question) => handleUpload(file, question, 'lab_report')}
         isUploading={isUploading}
         type="lab"
+        selectedPatient={selectedPatient}
       />
     </div>
   );
