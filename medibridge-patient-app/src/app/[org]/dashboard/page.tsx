@@ -43,6 +43,15 @@ interface UploadOption {
   comingSoon?: boolean;
 }
 
+// ========================================
+// Type for Organization Data
+// ========================================
+interface OrganizationData {
+  id: string;
+  name: string;
+  subdomain: string;
+}
+
 export default function DashboardPage() {
   const params = useParams();
   const router = useRouter();
@@ -52,6 +61,12 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [orgName, setOrgName] = useState<string>('');
+  
+  // ========================================
+  // NEW: Organization and Patient State
+  // ========================================
+  const [organizationData, setOrganizationData] = useState<OrganizationData | null>(null);
+  const [patientId, setPatientId] = useState<string | null>(null);
   
   // Upload modal state
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -116,7 +131,58 @@ export default function DashboardPage() {
     }
   ];
 
-  // Fetch user and prescriptions
+  // ========================================
+  // NEW: Helper Function - Get or Create Patient
+  // ========================================
+  const getOrCreatePatient = async (
+    userId: string,
+    organizationId: string,
+    userMetadata: { full_name?: string; email?: string; phone?: string }
+  ): Promise<string> => {
+    // First, try to find existing patient by auth_user_id and organization
+    const { data: existingPatient } = await supabase
+      .from('patients')
+      .select('id')
+      .eq('auth_user_id', userId)
+      .eq('organization_id', organizationId)
+      .single();
+
+    if (existingPatient) {
+      console.log('[Dashboard] Found existing patient:', existingPatient.id);
+      return existingPatient.id;
+    }
+
+    // No existing patient, create one
+    console.log('[Dashboard] Creating new patient record for user:', userId);
+    
+    const { data: newPatient, error: createError } = await supabase
+      .from('patients')
+      .insert({
+        organization_id: organizationId,
+        auth_user_id: userId,
+        full_name: userMetadata?.full_name || 'Patient',
+        email: userMetadata?.email,
+        phone: userMetadata?.phone,
+        preferred_language: 'en',
+        app_onboarded: true,
+        onboarding_completed_at: new Date().toISOString(),
+        status: 'active'
+      })
+      .select('id')
+      .single();
+
+    if (createError) {
+      console.error('[Dashboard] Error creating patient:', createError);
+      throw new Error('Failed to create patient record');
+    }
+
+    console.log('[Dashboard] Created new patient:', newPatient.id);
+    return newPatient.id;
+  };
+
+  // ========================================
+  // Fetch user, organization, patient, and prescriptions
+  // ========================================
   useEffect(() => {
     async function fetchData() {
       try {
@@ -124,41 +190,81 @@ export default function DashboardPage() {
         const { data: { user } } = await supabase.auth.getUser();
         setUser(user);
 
-        // Get organization name
-        const orgNameFormatted = org
-          .split('-')
-          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(' ');
-        setOrgName(orgNameFormatted);
+        if (!user) {
+          console.log('[Dashboard] No user found, redirecting to login');
+          router.push(`/${org}/login`);
+          return;
+        }
 
-        if (user) {
-          // Fetch prescriptions
-          const { data: prescriptionData, error } = await supabase
-            .from('prescriptions')
-            .select('*')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false })
-            .limit(10);
+        // ========================================
+        // NEW: Get organization data (includes UUID)
+        // ========================================
+        const { data: orgData, error: orgError } = await supabase
+          .from('organizations')
+          .select('id, name, subdomain')
+          .eq('subdomain', org)
+          .single();
 
-          if (!error && prescriptionData) {
-            setPrescriptions(prescriptionData);
-            
-            // Calculate stats
-            const total = prescriptionData.length;
-            const completed = prescriptionData.filter(p => 
-              p.status === 'completed' || p.status === 'analyzed'
-            ).length;
-            const processing = prescriptionData.filter(p => 
-              p.status === 'pending' || p.status === 'processing'
-            ).length;
-            
-            setStats({
-              total,
-              completed,
-              processing,
-              successRate: total > 0 ? Math.round((completed / total) * 100) : 98
-            });
+        if (orgError || !orgData) {
+          console.error('[Dashboard] Organization not found:', orgError);
+          // Fallback to formatted name
+          const orgNameFormatted = org
+            .split('-')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+          setOrgName(orgNameFormatted);
+        } else {
+          console.log('[Dashboard] Organization found:', orgData.id, orgData.name);
+          setOrganizationData(orgData);
+          setOrgName(orgData.name);
+
+          // ========================================
+          // NEW: Get or create patient record
+          // ========================================
+          try {
+            const resolvedPatientId = await getOrCreatePatient(
+              user.id,
+              orgData.id,
+              {
+                full_name: user.user_metadata?.full_name,
+                email: user.email,
+                phone: user.user_metadata?.phone
+              }
+            );
+            setPatientId(resolvedPatientId);
+            console.log('[Dashboard] Patient ID resolved:', resolvedPatientId);
+          } catch (patientError) {
+            console.error('[Dashboard] Patient creation error:', patientError);
+            // Continue without patient_id - workflow will use fallback
           }
+        }
+
+        // Fetch prescriptions
+        const { data: prescriptionData, error } = await supabase
+          .from('prescriptions')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (!error && prescriptionData) {
+          setPrescriptions(prescriptionData);
+          
+          // Calculate stats
+          const total = prescriptionData.length;
+          const completed = prescriptionData.filter(p => 
+            p.status === 'completed' || p.status === 'analyzed'
+          ).length;
+          const processing = prescriptionData.filter(p => 
+            p.status === 'pending' || p.status === 'processing'
+          ).length;
+          
+          setStats({
+            total,
+            completed,
+            processing,
+            successRate: total > 0 ? Math.round((completed / total) * 100) : 98
+          });
         }
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -168,7 +274,7 @@ export default function DashboardPage() {
     }
 
     fetchData();
-  }, [org, supabase]);
+  }, [org, supabase, router]);
 
   // Handle option click
   const handleOptionClick = (option: UploadOption) => {
@@ -213,7 +319,10 @@ export default function DashboardPage() {
     }
   }, []);
 
-  // Handle upload and analyze
+  // ========================================
+  // UPDATED: Handle upload and analyze
+  // Now includes organization_id and patient_id
+  // ========================================
   const handleUploadAndAnalyze = async () => {
     if (!uploadFile || !user || !selectedUploadType) return;
     
@@ -236,50 +345,80 @@ export default function DashboardPage() {
         .from('prescriptions')
         .getPublicUrl(filePath);
       
-      // 3. Create prescription record with document_type
+      // ========================================
+      // 3. UPDATED: Create prescription record with organization_id and patient_id
+      // ========================================
       const { data: prescriptionData, error: prescriptionError } = await supabase
         .from('prescriptions')
         .insert({
           user_id: user.id,
+          organization_id: organizationData?.id || null,  // NEW: Organization UUID
+          patient_id: patientId || null,                   // NEW: Patient UUID
           file_url: publicUrl,
           file_type: uploadFile.type,
           chief_complaint: chiefComplaint || (selectedUploadType === 'prescription' 
             ? 'Analyze my prescription' 
             : 'Analyze my lab report'),
           status: 'pending',
-          document_type: selectedUploadType, // 'prescription' or 'lab_report'
+          document_type: selectedUploadType,
           organization_slug: org
         })
         .select()
         .single();
       
       if (prescriptionError) throw prescriptionError;
+
+      console.log('[Dashboard] Prescription created:', prescriptionData.id);
       
-      // 4. Trigger n8n webhook with document_type
+      // ========================================
+      // 4. UPDATED: Trigger n8n webhook with organization_id and patient_id
+      // ========================================
+      const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || 
+        'https://n8n.nhcare.in/webhook/28465002-1451-4336-8fc7-eb333dec1ef3';
+
       const webhookPayload = {
         prescription_id: prescriptionData.id,
         file_url: publicUrl,
         file_type: uploadFile.type,
+        
+        // User information
         user_id: user.id,
         user_name: user.user_metadata?.full_name || user.email,
         user_email: user.email,
+        
+        // ========================================
+        // KEY FIELDS - Now properly included
+        // ========================================
+        organization_id: organizationData?.id || null,  // NEW: UUID for database FK
+        patient_id: patientId || null,                   // NEW: UUID for database FK
+        organization: org,                               // Slug - kept for backward compatibility
+        clinic_name: organizationData?.name || orgName,
+        
+        // Document and session info
         chief_complaint: chiefComplaint || (selectedUploadType === 'prescription' 
           ? 'Analyze my prescription' 
           : 'Analyze my lab report'),
+        query: chiefComplaint || (selectedUploadType === 'prescription' 
+          ? 'Analyze my prescription' 
+          : 'Analyze my lab report'),
         channel: 'web',
-        organization: org,
-        document_type: selectedUploadType // KEY: This tells n8n which path to use
+        document_type: selectedUploadType,
+        chat_session_id: prescriptionData.id  // Using prescription ID as session ID
       };
+
+      console.log('[Dashboard] Sending webhook with payload:', {
+        prescription_id: webhookPayload.prescription_id,
+        organization_id: webhookPayload.organization_id,
+        patient_id: webhookPayload.patient_id,
+        document_type: webhookPayload.document_type
+      });
       
-      const response = await fetch('/api/webhook', {
+      // Fire webhook directly (not through API route)
+      fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(webhookPayload)
-      });
-      
-      if (!response.ok) {
-        console.error('Webhook error:', await response.text());
-      }
+      }).catch(err => console.error('[Dashboard] Webhook error:', err));
       
       // 5. Navigate to chat page
       router.push(`/${org}/chat?prescription_id=${prescriptionData.id}&session=${prescriptionData.id}`);
@@ -323,7 +462,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-white">MediBridge</h1>
-                <p className="text-xs text-cyan-400">Healthcare Intelligence</p>
+                <p className="text-xs text-cyan-400">{orgName || 'Healthcare Intelligence'}</p>
               </div>
             </div>
             <nav className="flex items-center gap-6">
