@@ -1,269 +1,441 @@
 ﻿'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { 
-  FileText, 
-  FlaskConical, 
-  MessageCircle, 
-  Mic, 
-  Upload, 
-  Clock, 
-  CheckCircle2, 
-  AlertCircle,
-  Loader2,
-  ArrowRight,
-  X,
-  Camera,
-  File
-} from 'lucide-react';
+import { ArrowRight, FileText, FlaskConical, MessageCircle, Mic, Upload, Camera, X, Check, Loader2 } from 'lucide-react';
+
+// ============================================================
+// TYPES
+// ============================================================
 
 interface Prescription {
   id: string;
-  created_at: string;
-  status: string;
   chief_complaint: string | null;
-  file_url: string | null;
-  doctor_name: string | null;
-  total_medicines: number | null;
-  total_tests: number | null;
-  document_type?: string;
+  status: string;
+  created_at: string;
+  document_type: string | null;
 }
 
-interface UploadOption {
-  id: string;
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-  color: string;
-  bgColor: string;
-  borderColor: string;
-  enabled: boolean;
-  comingSoon?: boolean;
+interface Stats {
+  total: number;
+  completed: number;
+  processing: number;
+  accuracy: number;
 }
 
-// ========================================
-// Type for Organization Data
-// ========================================
-interface OrganizationData {
-  id: string;
-  name: string;
-  subdomain: string;
+// ============================================================
+// SERVICE CARDS COMPONENT
+// ============================================================
+
+const ServiceCards = ({ 
+  onPrescriptionClick, 
+  onLabReportClick, 
+  onChatClick 
+}: {
+  onPrescriptionClick: () => void;
+  onLabReportClick: () => void;
+  onChatClick: () => void;
+}) => {
+  return (
+    <div className="bg-slate-800/50 rounded-2xl p-6 backdrop-blur-sm">
+      {/* Badge */}
+      <div className="inline-flex items-center gap-2 bg-cyan-500/20 text-cyan-400 px-3 py-1 rounded-full text-xs font-medium mb-4">
+        <span className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></span>
+        AI Ready • 8+ Languages
+      </div>
+      
+      <h2 className="text-white text-xl font-bold mb-2">How can we help you today?</h2>
+      <p className="text-slate-400 text-sm mb-6">Choose an option below to get started with your health query</p>
+      
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        
+        {/* Doctor's Prescription - Sky Blue */}
+        <button
+          onClick={onPrescriptionClick}
+          className="group relative bg-gradient-to-br from-cyan-500/10 to-blue-500/10 
+                     border border-cyan-500/30 hover:border-cyan-400/60
+                     rounded-xl p-5 text-left transition-all duration-300
+                     hover:shadow-lg hover:shadow-cyan-500/20 hover:scale-[1.02]"
+        >
+          <div className="w-12 h-12 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-xl 
+                          flex items-center justify-center mb-4 
+                          group-hover:scale-110 transition-transform duration-300">
+            <FileText className="w-6 h-6 text-white" />
+          </div>
+          <h3 className="text-cyan-400 font-semibold text-base mb-2">Doctor's Prescription</h3>
+          <p className="text-slate-400 text-xs mb-4 leading-relaxed">
+            Upload your prescription for medicine analysis, dosage explanations, and precautions
+          </p>
+          <span className="inline-flex items-center text-cyan-400 text-sm font-medium group-hover:gap-2 transition-all">
+            Get Started 
+            <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+          </span>
+        </button>
+
+        {/* Lab Report - Orange */}
+        <button
+          onClick={onLabReportClick}
+          className="group relative bg-gradient-to-br from-orange-500/10 to-amber-500/10 
+                     border border-orange-500/30 hover:border-orange-400/60
+                     rounded-xl p-5 text-left transition-all duration-300
+                     hover:shadow-lg hover:shadow-orange-500/20 hover:scale-[1.02]"
+        >
+          <div className="w-12 h-12 bg-gradient-to-br from-orange-400 to-amber-500 rounded-xl 
+                          flex items-center justify-center mb-4
+                          group-hover:scale-110 transition-transform duration-300">
+            <FlaskConical className="w-6 h-6 text-white" />
+          </div>
+          <h3 className="text-orange-400 font-semibold text-base mb-2">Lab Report</h3>
+          <p className="text-slate-400 text-xs mb-4 leading-relaxed">
+            Upload your lab test results for detailed analysis and health insights
+          </p>
+          <span className="inline-flex items-center text-orange-400 text-sm font-medium group-hover:gap-2 transition-all">
+            Get Started 
+            <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+          </span>
+        </button>
+
+        {/* Chat Only - Neon Green */}
+        <button
+          onClick={onChatClick}
+          className="group relative bg-gradient-to-br from-emerald-500/10 to-green-500/10 
+                     border border-emerald-500/30 hover:border-emerald-400/60
+                     rounded-xl p-5 text-left transition-all duration-300
+                     hover:shadow-lg hover:shadow-emerald-500/20 hover:scale-[1.02]"
+        >
+          <div className="w-12 h-12 bg-gradient-to-br from-emerald-400 to-green-500 rounded-xl 
+                          flex items-center justify-center mb-4
+                          group-hover:scale-110 transition-transform duration-300">
+            <MessageCircle className="w-6 h-6 text-white" />
+          </div>
+          <h3 className="text-emerald-400 font-semibold text-base mb-2">Chat Only</h3>
+          <p className="text-slate-400 text-xs mb-4 leading-relaxed">
+            Ask health questions directly without uploading any documents
+          </p>
+          <span className="inline-flex items-center text-emerald-400 text-sm font-medium group-hover:gap-2 transition-all">
+            Get Started 
+            <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+          </span>
+        </button>
+
+        {/* Voice Chat - Purple (Coming Soon) */}
+        <div className="group relative bg-gradient-to-br from-purple-500/5 to-violet-500/5 
+                        border border-purple-500/20 rounded-xl p-5 text-left opacity-60">
+          <div className="absolute top-3 right-3">
+            <span className="bg-purple-500/20 text-purple-400 text-[10px] px-2 py-0.5 rounded-full font-medium">
+              Coming Soon
+            </span>
+          </div>
+          <div className="w-12 h-12 bg-gradient-to-br from-purple-400/50 to-violet-500/50 rounded-xl 
+                          flex items-center justify-center mb-4">
+            <Mic className="w-6 h-6 text-white/70" />
+          </div>
+          <h3 className="text-purple-400/70 font-semibold text-base mb-2">Voice Chat</h3>
+          <p className="text-slate-500 text-xs mb-4 leading-relaxed">
+            Speak your questions and get audio responses
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// PRESCRIPTION UPLOAD MODAL - Sky Blue Theme
+// ============================================================
+
+interface UploadModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (file: File, question: string) => void;
+  isUploading: boolean;
+  type: 'prescription' | 'lab';
 }
+
+const UploadModal = ({ isOpen, onClose, onSubmit, isUploading, type }: UploadModalProps) => {
+  const [file, setFile] = useState<File | null>(null);
+  const [question, setQuestion] = useState('');
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Reset state when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setFile(null);
+      setQuestion('');
+      setDragActive(false);
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const isPrescription = type === 'prescription';
+  const themeColor = isPrescription ? 'cyan' : 'orange';
+  const gradientFrom = isPrescription ? 'from-cyan-400' : 'from-orange-400';
+  const gradientTo = isPrescription ? 'to-blue-500' : 'to-amber-500';
+  const borderColor = isPrescription ? 'border-cyan-500/30' : 'border-orange-500/30';
+  const shadowColor = isPrescription ? 'shadow-cyan-500/10' : 'shadow-orange-500/10';
+  const headerGradient = isPrescription 
+    ? 'from-cyan-500/20 to-blue-500/20' 
+    : 'from-orange-500/20 to-amber-500/20';
+  const headerBorder = isPrescription ? 'border-cyan-500/20' : 'border-orange-500/20';
+  const textColor = isPrescription ? 'text-cyan-300' : 'text-orange-300';
+  const iconBg = isPrescription ? 'bg-cyan-500/20' : 'bg-orange-500/20';
+  const iconColor = isPrescription ? 'text-cyan-400' : 'text-orange-400';
+  const focusRing = isPrescription ? 'focus:ring-cyan-500/50 focus:border-cyan-500' : 'focus:ring-orange-500/50 focus:border-orange-500';
+  const buttonGradient = isPrescription 
+    ? 'from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-cyan-500/25' 
+    : 'from-orange-500 to-amber-600 hover:from-orange-400 hover:to-amber-500 shadow-orange-500/25';
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0]);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      
+      {/* Modal */}
+      <div className={`relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 
+                      rounded-2xl w-full max-w-md border ${borderColor} shadow-2xl ${shadowColor}`}>
+        
+        {/* Header */}
+        <div className={`bg-gradient-to-r ${headerGradient} px-6 py-4 rounded-t-2xl border-b ${headerBorder}`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 bg-gradient-to-br ${gradientFrom} ${gradientTo} rounded-xl flex items-center justify-center`}>
+                {isPrescription ? (
+                  <FileText className="w-5 h-5 text-white" />
+                ) : (
+                  <FlaskConical className="w-5 h-5 text-white" />
+                )}
+              </div>
+              <div>
+                <h3 className="text-white font-semibold text-lg">
+                  {isPrescription ? "Upload Doctor's Prescription" : "Upload Lab Report"}
+                </h3>
+                <p className={`${textColor} text-xs`}>
+                  {isPrescription ? "Get medicine analysis and dosage guidance" : "Get detailed lab result interpretation"}
+                </p>
+              </div>
+            </div>
+            <button 
+              onClick={onClose}
+              className="text-slate-400 hover:text-white transition-colors p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 space-y-5">
+          
+          {/* File Upload Area */}
+          <div
+            onDragEnter={handleDrag}
+            onDragLeave={handleDrag}
+            onDragOver={handleDrag}
+            onDrop={handleDrop}
+            className={`relative border-2 border-dashed rounded-xl p-6 text-center transition-all duration-300
+                        ${dragActive 
+                          ? `border-${themeColor}-400 bg-${themeColor}-500/10` 
+                          : file 
+                            ? 'border-green-400 bg-green-500/10' 
+                            : `border-slate-600 hover:border-${themeColor}-400/50 bg-slate-800/50`
+                        }`}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+            
+            {file ? (
+              <div className="space-y-2">
+                <div className="w-12 h-12 bg-green-500/20 rounded-full flex items-center justify-center mx-auto">
+                  <Check className="w-6 h-6 text-green-400" />
+                </div>
+                <p className="text-white font-medium">{file.name}</p>
+                <p className="text-slate-400 text-xs">{(file.size / 1024).toFixed(1)} KB</p>
+                <button
+                  onClick={() => setFile(null)}
+                  className="text-red-400 text-xs hover:underline"
+                >
+                  Remove file
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className={`w-14 h-14 ${iconBg} rounded-full flex items-center justify-center mx-auto`}>
+                  <Upload className={`w-7 h-7 ${iconColor}`} />
+                </div>
+                <div>
+                  <p className="text-white font-medium">Drag & drop your file here</p>
+                  <p className="text-slate-400 text-xs mt-1">or click to browse</p>
+                </div>
+                
+                <div className="flex justify-center gap-2">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 
+                               text-white text-sm rounded-lg transition-colors"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Browse Files
+                  </button>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 
+                               text-white text-sm rounded-lg transition-colors"
+                  >
+                    <Camera className="w-4 h-4" />
+                    Take Photo
+                  </button>
+                </div>
+                
+                <p className="text-slate-500 text-xs">Supported: PDF, JPG, PNG (Max 10MB)</p>
+              </div>
+            )}
+          </div>
+
+          {/* Question Input */}
+          <div>
+            <label className="block text-slate-300 text-sm font-medium mb-2">
+              What would you like to know? <span className="text-slate-500">(Optional)</span>
+            </label>
+            <textarea
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder={isPrescription 
+                ? "e.g., Explain my medicines and their side effects..." 
+                : "e.g., Are my test results normal? What should I be concerned about?"}
+              rows={3}
+              className={`w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white 
+                         placeholder-slate-500 text-sm resize-none
+                         focus:outline-none focus:ring-2 ${focusRing}
+                         transition-all duration-300`}
+            />
+          </div>
+
+          {/* Submit Button */}
+          <button
+            onClick={() => file && onSubmit(file, question)}
+            disabled={!file || isUploading}
+            className={`w-full py-3.5 bg-gradient-to-r ${buttonGradient}
+                       text-white font-semibold rounded-xl
+                       disabled:opacity-50 disabled:cursor-not-allowed
+                       transition-all duration-300 shadow-lg
+                       flex items-center justify-center gap-2`}
+          >
+            {isUploading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Analyzing...
+              </>
+            ) : (
+              <>
+                {isPrescription ? 'Analyze Prescription' : 'Analyze Lab Report'}
+                <ArrowRight className="w-4 h-4" />
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// MAIN DASHBOARD PAGE
+// ============================================================
 
 export default function DashboardPage() {
   const params = useParams();
   const router = useRouter();
   const org = params.org as string;
-  
-  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<any>(null);
-  const [orgName, setOrgName] = useState<string>('');
-  
-  // ========================================
-  // NEW: Organization and Patient State
-  // ========================================
-  const [organizationData, setOrganizationData] = useState<OrganizationData | null>(null);
-  const [patientId, setPatientId] = useState<string | null>(null);
-  
-  // Upload modal state
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const [selectedUploadType, setSelectedUploadType] = useState<string | null>(null);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [chiefComplaint, setChiefComplaint] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const [dragActive, setDragActive] = useState(false);
-
-  // Stats
-  const [stats, setStats] = useState({
-    total: 0,
-    completed: 0,
-    processing: 0,
-    successRate: 98
-  });
-
   const supabase = createClient();
 
-  // Upload options configuration
-  const uploadOptions: UploadOption[] = [
-    {
-      id: 'prescription',
-      title: "Doctor's Prescription",
-      description: 'Upload your prescription for medicine analysis, dosage explanations, and precautions',
-      icon: <FileText className="w-8 h-8" />,
-      color: 'text-blue-600',
-      bgColor: 'bg-blue-50 hover:bg-blue-100',
-      borderColor: 'border-blue-200 hover:border-blue-400',
-      enabled: true
-    },
-    {
-      id: 'lab_report',
-      title: 'Lab Report',
-      description: 'Upload your lab test results for detailed analysis and health insights',
-      icon: <FlaskConical className="w-8 h-8" />,
-      color: 'text-emerald-600',
-      bgColor: 'bg-emerald-50 hover:bg-emerald-100',
-      borderColor: 'border-emerald-200 hover:border-emerald-400',
-      enabled: true
-    },
-    {
-      id: 'chat',
-      title: 'Chat Only',
-      description: 'Ask health questions directly without uploading any documents',
-      icon: <MessageCircle className="w-8 h-8" />,
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-50 hover:bg-purple-100',
-      borderColor: 'border-purple-200 hover:border-purple-400',
-      enabled: true
-    },
-    {
-      id: 'voice',
-      title: 'Voice Chat',
-      description: 'Speak your questions and get audio responses',
-      icon: <Mic className="w-8 h-8" />,
-      color: 'text-orange-600',
-      bgColor: 'bg-orange-50 hover:bg-orange-100',
-      borderColor: 'border-orange-200 hover:border-orange-400',
-      enabled: false,
-      comingSoon: true
-    }
-  ];
+  // State
+  const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
+  const [showLabReportModal, setShowLabReportModal] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [recentPrescriptions, setRecentPrescriptions] = useState<Prescription[]>([]);
+  const [stats, setStats] = useState<Stats>({ total: 0, completed: 0, processing: 0, accuracy: 100 });
+  const [orgName, setOrgName] = useState('');
+  const [loading, setLoading] = useState(true);
 
-  // ========================================
-  // NEW: Helper Function - Get or Create Patient
-  // ========================================
-  const getOrCreatePatient = async (
-    userId: string,
-    organizationId: string,
-    userMetadata: { full_name?: string; email?: string; phone?: string }
-  ): Promise<string> => {
-    // First, try to find existing patient by auth_user_id and organization
-    const { data: existingPatient } = await supabase
-      .from('patients')
-      .select('id')
-      .eq('auth_user_id', userId)
-      .eq('organization_id', organizationId)
-      .single();
-
-    if (existingPatient) {
-      console.log('[Dashboard] Found existing patient:', existingPatient.id);
-      return existingPatient.id;
-    }
-
-    // No existing patient, create one
-    console.log('[Dashboard] Creating new patient record for user:', userId);
-    
-    const { data: newPatient, error: createError } = await supabase
-      .from('patients')
-      .insert({
-        organization_id: organizationId,
-        auth_user_id: userId,
-        full_name: userMetadata?.full_name || 'Patient',
-        email: userMetadata?.email,
-        phone: userMetadata?.phone,
-        preferred_language: 'en',
-        app_onboarded: true,
-        onboarding_completed_at: new Date().toISOString(),
-        status: 'active'
-      })
-      .select('id')
-      .single();
-
-    if (createError) {
-      console.error('[Dashboard] Error creating patient:', createError);
-      throw new Error('Failed to create patient record');
-    }
-
-    console.log('[Dashboard] Created new patient:', newPatient.id);
-    return newPatient.id;
-  };
-
-  // ========================================
-  // Fetch user, organization, patient, and prescriptions
-  // ========================================
+  // Fetch data on mount
   useEffect(() => {
     async function fetchData() {
       try {
+        // Get organization
+        const { data: orgData } = await supabase
+          .from('organizations')
+          .select('name')
+          .eq('subdomain', org)
+          .single();
+        
+        if (orgData) {
+          setOrgName(orgData.name);
+        }
+
         // Get user
         const { data: { user } } = await supabase.auth.getUser();
-        setUser(user);
-
         if (!user) {
-          console.log('[Dashboard] No user found, redirecting to login');
-          router.push(`/${org}/login`);
+          router.push(`/${org}/auth`);
           return;
         }
 
-        // ========================================
-        // NEW: Get organization data (includes UUID)
-        // ========================================
-        const { data: orgData, error: orgError } = await supabase
-          .from('organizations')
-          .select('id, name, subdomain')
-          .eq('subdomain', org)
-          .single();
-
-        if (orgError || !orgData) {
-          console.error('[Dashboard] Organization not found:', orgError);
-          // Fallback to formatted name
-          const orgNameFormatted = org
-            .split('-')
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-            .join(' ');
-          setOrgName(orgNameFormatted);
-        } else {
-          console.log('[Dashboard] Organization found:', orgData.id, orgData.name);
-          setOrganizationData(orgData);
-          setOrgName(orgData.name);
-
-          // ========================================
-          // NEW: Get or create patient record
-          // ========================================
-          try {
-            const resolvedPatientId = await getOrCreatePatient(
-              user.id,
-              orgData.id,
-              {
-                full_name: user.user_metadata?.full_name,
-                email: user.email,
-                phone: user.user_metadata?.phone
-              }
-            );
-            setPatientId(resolvedPatientId);
-            console.log('[Dashboard] Patient ID resolved:', resolvedPatientId);
-          } catch (patientError) {
-            console.error('[Dashboard] Patient creation error:', patientError);
-            // Continue without patient_id - workflow will use fallback
-          }
-        }
-
-        // Fetch prescriptions
-        const { data: prescriptionData, error } = await supabase
+        // Get prescriptions
+        const { data: prescriptions } = await supabase
           .from('prescriptions')
           .select('*')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(10);
 
-        if (!error && prescriptionData) {
-          setPrescriptions(prescriptionData);
+        if (prescriptions) {
+          setRecentPrescriptions(prescriptions);
           
           // Calculate stats
-          const total = prescriptionData.length;
-          const completed = prescriptionData.filter(p => 
-            p.status === 'completed' || p.status === 'analyzed'
-          ).length;
-          const processing = prescriptionData.filter(p => 
-            p.status === 'pending' || p.status === 'processing'
-          ).length;
+          const total = prescriptions.length;
+          const completed = prescriptions.filter(p => p.status === 'analyzed' || p.status === 'completed').length;
+          const processing = prescriptions.filter(p => p.status === 'processing' || p.status === 'pending').length;
           
           setStats({
             total,
             completed,
             processing,
-            successRate: total > 0 ? Math.round((completed / total) * 100) : 98
+            accuracy: 100
           });
         }
       } catch (error) {
@@ -274,509 +446,266 @@ export default function DashboardPage() {
     }
 
     fetchData();
-  }, [org, supabase, router]);
+  }, [org, router, supabase]);
 
-  // Handle option click
-  const handleOptionClick = (option: UploadOption) => {
-    if (!option.enabled) return;
-    
-    if (option.id === 'chat') {
-      // Navigate directly to chat without document
-      router.push(`/${org}/chat?mode=chat_only`);
-      return;
-    }
-    
-    setSelectedUploadType(option.id);
-    setShowUploadModal(true);
-  };
-
-  // Handle file selection
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setUploadFile(file);
-    }
-  };
-
-  // Handle drag and drop
-  const handleDrag = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setUploadFile(e.dataTransfer.files[0]);
-    }
-  }, []);
-
-  // ========================================
-  // UPDATED: Handle upload and analyze
-  // Now includes organization_id and patient_id
-  // ========================================
-  const handleUploadAndAnalyze = async () => {
-    if (!uploadFile || !user || !selectedUploadType) return;
-    
-    setUploading(true);
+  // Handle file upload
+  const handleUpload = async (file: File, question: string, documentType: 'prescription' | 'lab_report') => {
+    setIsUploading(true);
     
     try {
-      // 1. Upload file to Supabase Storage
-      const fileExt = uploadFile.name.split('.').pop();
-      const fileName = `${Date.now()}.${fileExt}`;
-      const filePath = `${user.id}/${fileName}`;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      // Get organization ID
+      const { data: orgData } = await supabase
+        .from('organizations')
+        .select('id')
+        .eq('subdomain', org)
+        .single();
+
+      // Upload file to storage
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
       
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('prescriptions')
-        .upload(filePath, uploadFile);
-      
+        .upload(fileName, file);
+
       if (uploadError) throw uploadError;
-      
-      // 2. Get public URL
+
+      // Get public URL
       const { data: { publicUrl } } = supabase.storage
         .from('prescriptions')
-        .getPublicUrl(filePath);
-      
-      // ========================================
-      // 3. UPDATED: Create prescription record with organization_id and patient_id
-      // ========================================
-      const { data: prescriptionData, error: prescriptionError } = await supabase
+        .getPublicUrl(fileName);
+
+      // Create prescription record
+      const { data: prescription, error: insertError } = await supabase
         .from('prescriptions')
         .insert({
           user_id: user.id,
-          organization_id: organizationData?.id || null,  // NEW: Organization UUID
-          patient_id: patientId || null,                   // NEW: Patient UUID
+          organization_id: orgData?.id,
           file_url: publicUrl,
-          file_type: uploadFile.type,
-          chief_complaint: chiefComplaint || (selectedUploadType === 'prescription' 
-            ? 'Analyze my prescription' 
-            : 'Analyze my lab report'),
+          file_type: file.type,
+          chief_complaint: question || 'Please analyze this document',
           status: 'pending',
-          document_type: selectedUploadType,
-          organization_slug: org
+          document_type: documentType
         })
         .select()
         .single();
-      
-      if (prescriptionError) throw prescriptionError;
 
-      console.log('[Dashboard] Prescription created:', prescriptionData.id);
-      
-      // ========================================
-      // 4. UPDATED: Trigger n8n webhook with organization_id and patient_id
-      // ========================================
+      if (insertError) throw insertError;
+
+      // Send to n8n webhook
       const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || 
         'https://n8n.nhcare.in/webhook/28465002-1451-4336-8fc7-eb333dec1ef3';
 
-      const webhookPayload = {
-        prescription_id: prescriptionData.id,
-        file_url: publicUrl,
-        file_type: uploadFile.type,
-        
-        // User information
-        user_id: user.id,
-        user_name: user.user_metadata?.full_name || user.email,
-        user_email: user.email,
-        
-        // ========================================
-        // KEY FIELDS - Now properly included
-        // ========================================
-        organization_id: organizationData?.id || null,  // NEW: UUID for database FK
-        patient_id: patientId || null,                   // NEW: UUID for database FK
-        organization: org,                               // Slug - kept for backward compatibility
-        clinic_name: organizationData?.name || orgName,
-        
-        // Document and session info
-        chief_complaint: chiefComplaint || (selectedUploadType === 'prescription' 
-          ? 'Analyze my prescription' 
-          : 'Analyze my lab report'),
-        query: chiefComplaint || (selectedUploadType === 'prescription' 
-          ? 'Analyze my prescription' 
-          : 'Analyze my lab report'),
-        channel: 'web',
-        document_type: selectedUploadType,
-        chat_session_id: prescriptionData.id  // Using prescription ID as session ID
-      };
-
-      console.log('[Dashboard] Sending webhook with payload:', {
-        prescription_id: webhookPayload.prescription_id,
-        organization_id: webhookPayload.organization_id,
-        patient_id: webhookPayload.patient_id,
-        document_type: webhookPayload.document_type
-      });
-      
-      // Fire webhook directly (not through API route)
-      fetch(webhookUrl, {
+      await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(webhookPayload)
-      }).catch(err => console.error('[Dashboard] Webhook error:', err));
+        body: JSON.stringify({
+          prescription_id: prescription.id,
+          file_url: publicUrl,
+          file_type: file.type,
+          user_id: user.id,
+          user_name: user.user_metadata?.name || 'User',
+          user_email: user.email,
+          organization_id: orgData?.id,
+          organization: org,
+          clinic_name: orgName,
+          chief_complaint: question || 'Please analyze this document',
+          query: question || 'Please analyze this document',
+          channel: 'web',
+          document_type: documentType,
+          chat_session_id: prescription.id
+        })
+      });
+
+      // Close modal and redirect to chat
+      setShowPrescriptionModal(false);
+      setShowLabReportModal(false);
       
-      // 5. Navigate to chat page
-      router.push(`/${org}/chat?prescription_id=${prescriptionData.id}&session=${prescriptionData.id}`);
+      router.push(`/${org}/chat?prescription_id=${prescription.id}&session=${prescription.id}`);
       
     } catch (error) {
       console.error('Upload error:', error);
       alert('Failed to upload. Please try again.');
     } finally {
-      setUploading(false);
+      setIsUploading(false);
     }
   };
 
-  // Close modal and reset
-  const closeModal = () => {
-    setShowUploadModal(false);
-    setSelectedUploadType(null);
-    setUploadFile(null);
-    setChiefComplaint('');
+  // Handle chat only
+  const handleChatOnly = () => {
+    router.push(`/${org}/chat`);
   };
 
-  // Get selected option details
-  const selectedOption = uploadOptions.find(o => o.id === selectedUploadType);
+  // Format date
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-cyan-500" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       {/* Header */}
-      <header className="bg-slate-900/50 backdrop-blur-sm border-b border-slate-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-lg flex items-center justify-center">
-                <FileText className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-white">MediBridge</h1>
-                <p className="text-xs text-cyan-400">{orgName || 'Healthcare Intelligence'}</p>
-              </div>
+      <header className="bg-slate-900/80 backdrop-blur-sm border-b border-slate-700 sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center">
+              <span className="text-white font-bold text-lg">M</span>
             </div>
-            <nav className="flex items-center gap-6">
-              <button className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium">
-                Dashboard
-              </button>
-              <button 
-                onClick={() => router.push(`/${org}/prescriptions`)}
-                className="text-slate-300 hover:text-white text-sm"
-              >
-                Prescriptions
-              </button>
-              <button className="text-slate-300 hover:text-white text-sm">Profile</button>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 rounded-lg">
-                <span className="text-white text-sm font-medium">
-                  {user?.user_metadata?.full_name?.split(' ')[0] || 'User'}
-                </span>
-              </div>
-            </nav>
+            <div>
+              <h1 className="text-white font-bold">MediBridge</h1>
+              <p className="text-slate-400 text-xs">{orgName}</p>
+            </div>
           </div>
+          
+          <nav className="flex items-center gap-4">
+            <button className="text-cyan-400 text-sm font-medium">Dashboard</button>
+            <button 
+              onClick={() => router.push(`/${org}/prescriptions`)}
+              className="text-slate-400 hover:text-white text-sm"
+            >
+              Prescriptions
+            </button>
+            <button className="text-slate-400 hover:text-white text-sm">Profile</button>
+            <span className="bg-cyan-500 text-white text-xs px-2 py-1 rounded-full font-medium">Test</span>
+          </nav>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 py-8 space-y-8">
+        
         {/* Hero Section */}
-        <div className="text-center mb-12">
-          <h2 className="text-4xl md:text-5xl font-bold text-white mb-4">
+        <div className="text-center py-8">
+          <h1 className="text-4xl font-bold text-white mb-2">
             Healthcare That
-            <span className="block text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400">
-              Never Sleeps
-            </span>
+          </h1>
+          <h2 className="text-4xl font-bold text-cyan-400 mb-4">
+            Never Sleeps
           </h2>
-          <p className="text-slate-300 text-lg max-w-2xl mx-auto">
-            Your 24/7 AI-powered healthcare companion. Get instant prescription analysis, 
+          <p className="text-slate-400 max-w-2xl mx-auto">
+            Your 24/7 AI-powered healthcare companion. Get instant prescription analysis,
             medicine information, and personalized health guidance in your preferred language.
           </p>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
-          <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-700">
+        {/* Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
             <p className="text-cyan-400 text-xs font-medium mb-1">Total Uploads</p>
             <p className="text-3xl font-bold text-white">{stats.total}</p>
-            <p className="text-slate-400 text-xs">Documents analyzed</p>
+            <p className="text-slate-500 text-xs">Documents analyzed</p>
           </div>
-          <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-700">
+          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
             <p className="text-green-400 text-xs font-medium mb-1">Completed</p>
             <p className="text-3xl font-bold text-white">{stats.completed}</p>
-            <p className="text-slate-400 text-xs">Ready to view</p>
+            <p className="text-slate-500 text-xs">Ready to view</p>
           </div>
-          <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-700">
-            <p className="text-orange-400 text-xs font-medium mb-1">Processing</p>
+          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+            <p className="text-yellow-400 text-xs font-medium mb-1">Processing</p>
             <p className="text-3xl font-bold text-white">{stats.processing}</p>
-            <p className="text-slate-400 text-xs">In queue</p>
+            <p className="text-slate-500 text-xs">In queue</p>
           </div>
-          <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-700">
+          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
             <p className="text-purple-400 text-xs font-medium mb-1">Success Rate</p>
-            <p className="text-3xl font-bold text-white">{stats.successRate}%</p>
-            <p className="text-slate-400 text-xs">Accuracy score</p>
+            <p className="text-3xl font-bold text-white">{stats.accuracy}%</p>
+            <p className="text-slate-500 text-xs">Accuracy score</p>
           </div>
         </div>
 
-        {/* Upload Options - 4 Cards */}
-        <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm rounded-2xl p-8 border border-slate-700 mb-12">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="px-3 py-1 bg-cyan-500/20 text-cyan-400 text-xs font-medium rounded-full">
-              AI Ready • 8+ Languages
-            </span>
-          </div>
-          <h3 className="text-2xl font-bold text-white mb-2">How can we help you today?</h3>
-          <p className="text-slate-400 mb-8">
-            Choose an option below to get started with your health query
-          </p>
-
-          {/* 4 Option Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {uploadOptions.map((option) => (
-              <button
-                key={option.id}
-                onClick={() => handleOptionClick(option)}
-                disabled={!option.enabled}
-                className={`relative p-6 rounded-xl border-2 transition-all duration-200 text-left
-                  ${option.enabled 
-                    ? `${option.bgColor} ${option.borderColor} cursor-pointer transform hover:scale-[1.02]` 
-                    : 'bg-slate-800/50 border-slate-700 cursor-not-allowed opacity-60'
-                  }`}
-              >
-                {option.comingSoon && (
-                  <span className="absolute top-3 right-3 px-2 py-0.5 bg-orange-500/20 text-orange-400 text-xs font-medium rounded-full">
-                    Coming Soon
-                  </span>
-                )}
-                <div className={`${option.color} mb-4`}>
-                  {option.icon}
-                </div>
-                <h4 className={`font-semibold mb-2 ${option.enabled ? 'text-slate-800' : 'text-slate-400'}`}>
-                  {option.title}
-                </h4>
-                <p className={`text-sm ${option.enabled ? 'text-slate-600' : 'text-slate-500'}`}>
-                  {option.description}
-                </p>
-                {option.enabled && !option.comingSoon && (
-                  <div className={`mt-4 flex items-center gap-1 text-sm font-medium ${option.color}`}>
-                    Get Started <ArrowRight className="w-4 h-4" />
-                  </div>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* Service Cards */}
+        <ServiceCards
+          onPrescriptionClick={() => setShowPrescriptionModal(true)}
+          onLabReportClick={() => setShowLabReportModal(true)}
+          onChatClick={handleChatOnly}
+        />
 
         {/* Recent Activity */}
-        {prescriptions.length > 0 && (
-          <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-6 border border-slate-700">
-            <h3 className="text-lg font-semibold text-white mb-4">Recent Activity</h3>
+        <div className="bg-slate-800/50 rounded-2xl p-6 backdrop-blur-sm">
+          <h2 className="text-white text-xl font-bold mb-4">Recent Activity</h2>
+          
+          {recentPrescriptions.length > 0 ? (
             <div className="space-y-3">
-              {prescriptions.slice(0, 5).map((prescription) => (
+              {recentPrescriptions.map((prescription) => (
                 <button
                   key={prescription.id}
                   onClick={() => router.push(`/${org}/chat?prescription_id=${prescription.id}&session=${prescription.id}`)}
-                  className="w-full flex items-center justify-between p-4 bg-slate-700/50 rounded-lg hover:bg-slate-700 transition-colors text-left"
+                  className="w-full flex items-center justify-between p-4 bg-slate-700/50 hover:bg-slate-700 
+                             rounded-xl transition-colors text-left"
                 >
-                  <div className="flex items-center gap-4">
-                    <div className={`p-2 rounded-lg ${
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                       prescription.document_type === 'lab_report' 
-                        ? 'bg-emerald-500/20' 
-                        : 'bg-blue-500/20'
+                        ? 'bg-orange-500/20' 
+                        : 'bg-cyan-500/20'
                     }`}>
-                      {prescription.document_type === 'lab_report' 
-                        ? <FlaskConical className="w-5 h-5 text-emerald-400" />
-                        : <FileText className="w-5 h-5 text-blue-400" />
-                      }
+                      {prescription.document_type === 'lab_report' ? (
+                        <FlaskConical className={`w-5 h-5 text-orange-400`} />
+                      ) : (
+                        <FileText className={`w-5 h-5 text-cyan-400`} />
+                      )}
                     </div>
                     <div>
                       <p className="text-white font-medium">
                         {prescription.chief_complaint || 'Document Analysis'}
                       </p>
-                      <p className="text-slate-400 text-sm">
-                        {new Date(prescription.created_at).toLocaleDateString('en-IN', {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
+                      <p className="text-slate-400 text-xs">
+                        {formatDate(prescription.created_at)}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    {prescription.status === 'completed' || prescription.status === 'analyzed' ? (
-                      <span className="flex items-center gap-1 text-green-400 text-sm">
-                        <CheckCircle2 className="w-4 h-4" /> Analyzed
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 text-orange-400 text-sm">
-                        <Clock className="w-4 h-4" /> Processing
-                      </span>
-                    )}
-                    <ArrowRight className="w-4 h-4 text-slate-400" />
-                  </div>
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                    prescription.status === 'analyzed' || prescription.status === 'completed'
+                      ? 'bg-green-500/20 text-green-400'
+                      : 'bg-yellow-500/20 text-yellow-400'
+                  }`}>
+                    {prescription.status === 'analyzed' || prescription.status === 'completed' 
+                      ? '✓ Analyzed' 
+                      : 'Processing'}
+                  </span>
                 </button>
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-slate-400">No recent activity. Upload a prescription to get started!</p>
+            </div>
+          )}
+        </div>
       </main>
 
-      {/* Upload Modal */}
-      {showUploadModal && selectedOption && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className={`p-6 border-b ${selectedOption.bgColor.replace('hover:bg-', '')}`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={selectedOption.color}>
-                    {selectedOption.icon}
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-slate-800">
-                      Upload {selectedOption.title}
-                    </h3>
-                    <p className="text-sm text-slate-600">
-                      {selectedUploadType === 'prescription' 
-                        ? 'Get medicine analysis and dosage guidance'
-                        : 'Get detailed lab result interpretation'
-                      }
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={closeModal}
-                  className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
-                >
-                  <X className="w-5 h-5 text-slate-500" />
-                </button>
-              </div>
-            </div>
+      {/* Upload Modals */}
+      <UploadModal
+        isOpen={showPrescriptionModal}
+        onClose={() => setShowPrescriptionModal(false)}
+        onSubmit={(file, question) => handleUpload(file, question, 'prescription')}
+        isUploading={isUploading}
+        type="prescription"
+      />
 
-            {/* Modal Body */}
-            <div className="p-6 space-y-6">
-              {/* File Upload Area */}
-              <div
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors
-                  ${dragActive 
-                    ? 'border-blue-500 bg-blue-50' 
-                    : uploadFile 
-                      ? 'border-green-500 bg-green-50'
-                      : 'border-slate-300 hover:border-slate-400'
-                  }`}
-              >
-                {uploadFile ? (
-                  <div className="space-y-2">
-                    <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-                      <CheckCircle2 className="w-6 h-6 text-green-600" />
-                    </div>
-                    <p className="font-medium text-slate-800">{uploadFile.name}</p>
-                    <p className="text-sm text-slate-500">
-                      {(uploadFile.size / 1024 / 1024).toFixed(2)} MB
-                    </p>
-                    <button
-                      onClick={() => setUploadFile(null)}
-                      className="text-red-500 text-sm hover:underline"
-                    >
-                      Remove file
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto">
-                      <Upload className="w-6 h-6 text-slate-400" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-slate-800">
-                        Drag & drop your file here
-                      </p>
-                      <p className="text-sm text-slate-500">or click to browse</p>
-                    </div>
-                    <input
-                      type="file"
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      onChange={handleFileSelect}
-                      className="hidden"
-                      id="file-upload"
-                    />
-                    <div className="flex items-center justify-center gap-3">
-                      <label
-                        htmlFor="file-upload"
-                        className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium text-slate-700 cursor-pointer transition-colors"
-                      >
-                        <File className="w-4 h-4 inline mr-2" />
-                        Browse Files
-                      </label>
-                      <button className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium text-slate-700 transition-colors">
-                        <Camera className="w-4 h-4 inline mr-2" />
-                        Take Photo
-                      </button>
-                    </div>
-                    <p className="text-xs text-slate-400">
-                      Supported: PDF, JPG, PNG (Max 10MB)
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Question/Concern Input */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  What would you like to know? (Optional)
-                </label>
-                <textarea
-                  value={chiefComplaint}
-                  onChange={(e) => setChiefComplaint(e.target.value)}
-                  placeholder={selectedUploadType === 'prescription'
-                    ? "e.g., Explain my medicines and their side effects..."
-                    : "e.g., Are my test results normal? What should I be concerned about?"
-                  }
-                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
-                  rows={3}
-                />
-              </div>
-
-              {/* Submit Button */}
-              <button
-                onClick={handleUploadAndAnalyze}
-                disabled={!uploadFile || uploading}
-                className={`w-full py-4 rounded-xl font-semibold text-white transition-all
-                  ${!uploadFile || uploading
-                    ? 'bg-slate-300 cursor-not-allowed'
-                    : selectedUploadType === 'prescription'
-                      ? 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600'
-                      : 'bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600'
-                  }`}
-              >
-                {uploading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Analyzing...
-                  </span>
-                ) : (
-                  <span className="flex items-center justify-center gap-2">
-                    Analyze {selectedUploadType === 'prescription' ? 'Prescription' : 'Lab Report'}
-                    <ArrowRight className="w-5 h-5" />
-                  </span>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <UploadModal
+        isOpen={showLabReportModal}
+        onClose={() => setShowLabReportModal(false)}
+        onSubmit={(file, question) => handleUpload(file, question, 'lab_report')}
+        isUploading={isUploading}
+        type="lab"
+      />
     </div>
   );
 }
