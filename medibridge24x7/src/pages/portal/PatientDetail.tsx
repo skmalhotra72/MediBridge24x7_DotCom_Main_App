@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
 import { useAuthStore } from '../../store/authStore';
@@ -9,716 +9,835 @@ import {
   Mail,
   MapPin,
   Calendar,
+  Stethoscope,
   FileText,
-  Pill,
+  MessageSquare,
   FlaskConical,
-  Plus,
-  ChevronDown,
-  ChevronUp,
+  AlertTriangle,
   Clock,
+  Sparkles,
+  ExternalLink,
+  Pill,
+  Activity,
+  Heart,
+  RefreshCw
 } from 'lucide-react';
-import toast from 'react-hot-toast';
 
-interface Patient {
-  id: string;
-  organization_id: string;
-  full_name: string;
-  age?: number;
-  gender?: string;
-  phone?: string;
-  email?: string;
-  address?: string;
-  medical_history?: string;
-  created_at: string;
-  last_visit_date?: string;
+// ============================================
+// TYPE DEFINITIONS
+// ============================================
+
+interface PatientDetails {
+  patient: {
+    id: string;
+    full_name: string;
+    gender: string | null;
+    age: number | null;
+    date_of_birth: string | null;
+    phone: string | null;
+    email: string | null;
+    address: string | null;
+    address_line1: string | null;
+    address_line2: string | null;
+    city: string | null;
+    state: string | null;
+    pincode: string | null;
+    blood_group: string | null;
+    known_allergies: string[] | null;
+    chronic_conditions: string[] | null;
+    emergency_contact_name: string | null;
+    emergency_contact_phone: string | null;
+    created_at: string;
+    last_visit_date: string | null;
+    total_visits: number;
+  };
+  consultations: Array<{
+    id: string;
+    consultation_date: string;
+    time_slot: string | null;
+    consultation_type: string | null;
+    consultation_status: string | null;
+    is_followup: boolean | null;
+    doctor_id: string | null;
+    chief_complaint: string | null;
+    diagnosis_summary: string | null;
+    notes: string | null;
+  }>;
+  prescriptions: Array<{
+    id: string;
+    created_at: string;
+    processing_status: string | null;
+    status: string | null;
+    total_medicines: number | null;
+    total_tests: number | null;
+    doctor_name: string | null;
+    clinic_name: string | null;
+    ai_summary: string | null;
+    file_url: string | null;
+  }>;
+  lab_orders: Array<{
+    id: string;
+    order_date: string;
+    status: string | null;
+    report_status: string | null;
+    booking_type: string | null;
+    total_amount: number | null;
+    test_ids: any;
+  }>;
+  chat_history: Array<{
+    session_id: string;
+    created_at: string;
+    status: string | null;
+    summary: string | null;
+    chat_summary: string | null;
+    message_count: number | null;
+    prescription_id: string | null;
+    topics: string[] | null;
+  }>;
+  comprehensive_analysis: {
+    id: string;
+    analysis_content: string;
+    key_findings: any;
+    recommendations: any;
+    generated_at: string;
+    version: number;
+    status: string;
+  } | null;
+  escalations: Array<{
+    id: string;
+    created_at: string;
+    severity: string | null;
+    status: string | null;
+    reason: string | null;
+  }>;
 }
 
-interface Consultation {
-  id: string;
-  patient_id: string;
-  doctor_id: string;
-  consultation_date: string;
-  chief_complaint?: string;
-  diagnosis?: string;
-  notes?: string;
-  follow_up_date?: string;
-  doctor_name?: string;
-}
+type TabType = 'consultations' | 'prescriptions' | 'chats' | 'lab_orders' | 'escalations';
 
-interface Prescription {
-  id: string;
-  patient_id: string;
-  doctor_id: string;
-  prescription_date: string;
-  notes?: string;
-  doctor_name?: string;
-  items?: PrescriptionItem[];
-}
+// ============================================
+// TAB BUTTON COMPONENT
+// ============================================
 
-interface PrescriptionItem {
-  medicine_name: string;
-  dosage?: string;
-  frequency?: string;
-  duration?: string;
-}
-
-interface LabOrder {
-  id: string;
-  patient_id: string;
-  doctor_id: string;
-  test_names: string;
-  status: string;
-  created_at: string;
-  result_date?: string;
-  doctor_name?: string;
-}
-
-const ConsultationCard = ({ consultation }: { consultation: Consultation }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-
+function TabButton({ 
+  active, 
+  onClick, 
+  children, 
+  count 
+}: { 
+  active: boolean; 
+  onClick: () => void; 
+  children: React.ReactNode;
+  count?: number;
+}) {
   return (
-    <div className="bg-slate-900 border border-slate-700 rounded-lg p-4 hover:border-slate-600 transition-colors">
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-blue-900 rounded-full flex items-center justify-center">
-            <FileText className="w-5 h-5 text-blue-300" />
-          </div>
-          <div>
-            <div className="text-sm font-medium text-white">Consultation</div>
-            <div className="text-xs text-slate-400">
-              {new Date(consultation.consultation_date).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              })}
-            </div>
-          </div>
-        </div>
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="p-1 hover:bg-slate-800 rounded transition-colors"
-        >
-          {isExpanded ? (
-            <ChevronUp className="w-5 h-5 text-slate-400" />
-          ) : (
-            <ChevronDown className="w-5 h-5 text-slate-400" />
-          )}
-        </button>
-      </div>
+    <button
+      onClick={onClick}
+      className={`
+        flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl transition-all
+        ${active 
+          ? 'bg-teal-500/20 text-teal-400 border border-teal-500/30' 
+          : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'}
+      `}
+    >
+      {children}
+      {count !== undefined && count > 0 && (
+        <span className={`px-1.5 py-0.5 text-xs rounded-full ${
+          active ? 'bg-teal-500/30' : 'bg-slate-700'
+        }`}>
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
 
-      <div className="space-y-2">
-        <div className="flex items-start space-x-2">
-          <User className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-          <div>
-            <div className="text-xs text-slate-500">Doctor</div>
-            <div className="text-sm text-white">{consultation.doctor_name || 'Unknown'}</div>
-          </div>
-        </div>
+// ============================================
+// INFO CARD COMPONENT
+// ============================================
 
-        {consultation.chief_complaint && (
-          <div className="flex items-start space-x-2">
-            <FileText className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-            <div>
-              <div className="text-xs text-slate-500">Chief Complaint</div>
-              <div className="text-sm text-slate-300">{consultation.chief_complaint}</div>
-            </div>
-          </div>
-        )}
-
-        {isExpanded && (
-          <>
-            {consultation.diagnosis && (
-              <div className="flex items-start space-x-2">
-                <FileText className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <div className="text-xs text-slate-500">Diagnosis</div>
-                  <div className="text-sm text-slate-300">{consultation.diagnosis}</div>
-                </div>
-              </div>
-            )}
-
-            {consultation.notes && (
-              <div className="flex items-start space-x-2">
-                <FileText className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <div className="text-xs text-slate-500">Notes</div>
-                  <div className="text-sm text-slate-300 whitespace-pre-wrap">
-                    {consultation.notes}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {consultation.follow_up_date && (
-              <div className="flex items-start space-x-2">
-                <Calendar className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <div className="text-xs text-slate-500">Follow-up Date</div>
-                  <div className="text-sm text-slate-300">
-                    {new Date(consultation.follow_up_date).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-          </>
-        )}
+function InfoCard({ icon: Icon, label, value, color = 'slate' }: { 
+  icon: React.ElementType; 
+  label: string; 
+  value: string | number | null;
+  color?: string;
+}) {
+  if (!value) return null;
+  
+  const colorClasses: Record<string, string> = {
+    slate: 'text-slate-400',
+    teal: 'text-teal-400',
+    blue: 'text-blue-400',
+    purple: 'text-purple-400',
+    green: 'text-green-400',
+  };
+  
+  return (
+    <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/30">
+      <Icon className={`w-4 h-4 ${colorClasses[color]} mt-0.5 flex-shrink-0`} />
+      <div>
+        <p className="text-xs text-slate-500">{label}</p>
+        <p className="text-sm text-white">{value}</p>
       </div>
     </div>
   );
-};
+}
 
-const PrescriptionCard = ({ prescription }: { prescription: Prescription }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+// ============================================
+// CONSULTATION CARD COMPONENT
+// ============================================
 
-  return (
-    <div className="bg-slate-900 border border-slate-700 rounded-lg p-4 hover:border-slate-600 transition-colors">
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-green-900 rounded-full flex items-center justify-center">
-            <Pill className="w-5 h-5 text-green-300" />
-          </div>
-          <div>
-            <div className="text-sm font-medium text-white">Prescription</div>
-            <div className="text-xs text-slate-400">
-              {new Date(prescription.prescription_date).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              })}
-            </div>
-          </div>
-        </div>
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="p-1 hover:bg-slate-800 rounded transition-colors"
-        >
-          {isExpanded ? (
-            <ChevronUp className="w-5 h-5 text-slate-400" />
-          ) : (
-            <ChevronDown className="w-5 h-5 text-slate-400" />
-          )}
-        </button>
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex items-start space-x-2">
-          <User className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-          <div>
-            <div className="text-xs text-slate-500">Prescribed by</div>
-            <div className="text-sm text-white">{prescription.doctor_name || 'Unknown'}</div>
-          </div>
-        </div>
-
-        {prescription.items && prescription.items.length > 0 && (
-          <div className="mt-3">
-            <div className="text-xs text-slate-500 mb-2">Medications</div>
-            <div className="space-y-2">
-              {prescription.items.slice(0, isExpanded ? undefined : 2).map((item, index) => (
-                <div
-                  key={index}
-                  className="bg-slate-800 border border-slate-700 rounded p-3 text-sm"
-                >
-                  <div className="font-medium text-white mb-1">{item.medicine_name}</div>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
-                    {item.dosage && (
-                      <div>
-                        <span className="text-slate-500">Dosage:</span> {item.dosage}
-                      </div>
-                    )}
-                    {item.frequency && (
-                      <div>
-                        <span className="text-slate-500">Frequency:</span> {item.frequency}
-                      </div>
-                    )}
-                    {item.duration && (
-                      <div className="col-span-2">
-                        <span className="text-slate-500">Duration:</span> {item.duration}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {!isExpanded && prescription.items.length > 2 && (
-                <div className="text-xs text-slate-400">
-                  +{prescription.items.length - 2} more medication(s)
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {isExpanded && prescription.notes && (
-          <div className="flex items-start space-x-2 mt-3">
-            <FileText className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-            <div>
-              <div className="text-xs text-slate-500">Notes</div>
-              <div className="text-sm text-slate-300 whitespace-pre-wrap">{prescription.notes}</div>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-const LabOrderCard = ({ labOrder }: { labOrder: LabOrder }) => {
-  const getStatusBadge = (status: string) => {
-    const styles = {
-      pending: 'bg-amber-900 text-amber-300 border-amber-700',
-      completed: 'bg-green-900 text-green-300 border-green-700',
-      cancelled: 'bg-red-900 text-red-300 border-red-700',
-    };
-
-    return (
-      <span
-        className={`px-2 py-1 text-xs font-medium rounded border ${
-          styles[status as keyof typeof styles] || styles.pending
-        }`}
-      >
-        {status.charAt(0).toUpperCase() + status.slice(1)}
-      </span>
-    );
+function ConsultationCard({ consultation }: { consultation: PatientDetails['consultations'][0] }) {
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-700 rounded-lg p-4 hover:border-slate-600 transition-colors">
+    <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700/50 hover:border-slate-600/50 transition-colors">
       <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-purple-900 rounded-full flex items-center justify-center">
-            <FlaskConical className="w-5 h-5 text-purple-300" />
-          </div>
-          <div>
-            <div className="text-sm font-medium text-white">Lab Order</div>
-            <div className="text-xs text-slate-400">
-              {new Date(labOrder.created_at).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              })}
-            </div>
-          </div>
+        <div className="flex items-center gap-2">
+          <Stethoscope className="w-4 h-4 text-teal-400" />
+          <span className="text-white font-medium">{formatDate(consultation.consultation_date)}</span>
+          {consultation.time_slot && (
+            <span className="text-slate-500 text-sm">at {consultation.time_slot}</span>
+          )}
         </div>
-        {getStatusBadge(labOrder.status)}
+        <div className="flex items-center gap-2">
+          {consultation.is_followup && (
+            <span className="px-2 py-0.5 text-xs bg-purple-500/20 text-purple-400 rounded-full">
+              Follow-up
+            </span>
+          )}
+          <span className={`px-2 py-0.5 text-xs rounded-full ${
+            consultation.consultation_status === 'completed' ? 'bg-green-500/20 text-green-400' :
+            consultation.consultation_status === 'scheduled' ? 'bg-blue-500/20 text-blue-400' :
+            consultation.consultation_status === 'confirmed' ? 'bg-teal-500/20 text-teal-400' :
+            consultation.consultation_status === 'cancelled' ? 'bg-red-500/20 text-red-400' :
+            'bg-slate-500/20 text-slate-400'
+          }`}>
+            {consultation.consultation_status || 'Pending'}
+          </span>
+        </div>
+      </div>
+      
+      {consultation.chief_complaint && (
+        <p className="text-sm text-slate-400 mb-2">
+          <span className="text-slate-500">Chief Complaint:</span> {consultation.chief_complaint}
+        </p>
+      )}
+      
+      {consultation.diagnosis_summary && (
+        <p className="text-sm text-slate-400">
+          <span className="text-slate-500">Diagnosis:</span> {consultation.diagnosis_summary}
+        </p>
+      )}
+      
+      {consultation.consultation_type && (
+        <div className="mt-3 pt-3 border-t border-slate-700/50 flex items-center gap-2 text-xs text-slate-500">
+          <span className="capitalize">{consultation.consultation_type.replace('_', ' ')}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================
+// PRESCRIPTION CARD COMPONENT
+// ============================================
+
+function PrescriptionCard({ prescription, orgSubdomain }: { prescription: PatientDetails['prescriptions'][0]; orgSubdomain?: string }) {
+  const navigate = useNavigate();
+  
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
+
+  const handleViewDetails = () => {
+    // Navigate to prescription chat page on patient app (port 3000)
+    const patientAppUrl = import.meta.env.VITE_PATIENT_APP_URL || 'http://localhost:3000';
+    window.open(`${patientAppUrl}/${orgSubdomain}/chat?prescription_id=${prescription.id}`, '_blank');
+  };
+
+  return (
+    <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700/50 hover:border-slate-600/50 transition-colors">
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <FileText className="w-4 h-4 text-blue-400" />
+          <span className="text-white font-medium">{formatDate(prescription.created_at)}</span>
+        </div>
+        <span className={`px-2 py-0.5 text-xs rounded-full ${
+          prescription.status === 'analyzed' || prescription.processing_status === 'completed' 
+            ? 'bg-green-500/20 text-green-400' :
+          prescription.processing_status === 'processing' 
+            ? 'bg-yellow-500/20 text-yellow-400' :
+          'bg-slate-500/20 text-slate-400'
+        }`}>
+          {prescription.status || prescription.processing_status || 'Pending'}
+        </span>
       </div>
 
-      <div className="space-y-2">
-        <div className="flex items-start space-x-2">
-          <User className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-          <div>
-            <div className="text-xs text-slate-500">Ordered by</div>
-            <div className="text-sm text-white">{labOrder.doctor_name || 'Unknown'}</div>
-          </div>
+      <div className="flex items-center gap-4 mb-3">
+        <div className="flex items-center gap-1 text-sm">
+          <Pill className="w-3 h-3 text-green-400" />
+          <span className="text-white">{prescription.total_medicines || 0}</span>
+          <span className="text-slate-500">medicines</span>
         </div>
-
-        <div className="flex items-start space-x-2">
-          <FlaskConical className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-          <div>
-            <div className="text-xs text-slate-500">Tests</div>
-            <div className="text-sm text-slate-300">{labOrder.test_names}</div>
-          </div>
+        <div className="flex items-center gap-1 text-sm">
+          <FlaskConical className="w-3 h-3 text-purple-400" />
+          <span className="text-white">{prescription.total_tests || 0}</span>
+          <span className="text-slate-500">tests</span>
         </div>
+      </div>
 
-        {labOrder.result_date && (
-          <div className="flex items-start space-x-2">
-            <Clock className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-            <div>
-              <div className="text-xs text-slate-500">Result Date</div>
-              <div className="text-sm text-slate-300">
-                {new Date(labOrder.result_date).toLocaleDateString('en-US', {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-              </div>
-            </div>
+      {prescription.ai_summary && (
+        <p className="text-sm text-slate-400 line-clamp-2 mb-3">
+          {prescription.ai_summary}
+        </p>
+      )}
+
+      <div className="flex items-center justify-between pt-3 border-t border-slate-700/50">
+        {prescription.doctor_name && (
+          <span className="text-xs text-slate-500">Dr. {prescription.doctor_name}</span>
+        )}
+        <button 
+          onClick={handleViewDetails}
+          className="flex items-center gap-1 text-xs text-teal-400 hover:text-teal-300"
+        >
+          <ExternalLink className="w-3 h-3" />
+          View Details
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// CHAT SESSION CARD COMPONENT
+// ============================================
+
+function ChatCard({ chat }: { chat: PatientDetails['chat_history'][0] }) {
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  return (
+    <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700/50 hover:border-slate-600/50 transition-colors">
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="w-4 h-4 text-blue-400" />
+          <span className="text-white font-medium">{formatDate(chat.created_at)}</span>
+        </div>
+        <span className={`px-2 py-0.5 text-xs rounded-full ${
+          chat.status === 'active' ? 'bg-green-500/20 text-green-400' :
+          chat.status === 'ended' ? 'bg-slate-500/20 text-slate-400' :
+          chat.status === 'escalated' ? 'bg-orange-500/20 text-orange-400' :
+          'bg-blue-500/20 text-blue-400'
+        }`}>
+          {chat.status || 'Unknown'}
+        </span>
+      </div>
+
+      {(chat.summary || chat.chat_summary) && (
+        <p className="text-sm text-slate-400 line-clamp-2 mb-3">
+          {chat.chat_summary || chat.summary}
+        </p>
+      )}
+
+      <div className="flex items-center justify-between pt-3 border-t border-slate-700/50 text-xs text-slate-500">
+        <span>{chat.message_count || 0} messages</span>
+        {chat.topics && chat.topics.length > 0 && (
+          <div className="flex items-center gap-1">
+            {chat.topics.slice(0, 2).map((topic, i) => (
+              <span key={i} className="px-2 py-0.5 bg-slate-700/50 rounded-full">
+                {topic}
+              </span>
+            ))}
           </div>
         )}
       </div>
     </div>
   );
-};
+}
 
-export const PatientDetail = () => {
+// ============================================
+// LAB ORDER CARD COMPONENT
+// ============================================
+
+function LabOrderCard({ order }: { order: PatientDetails['lab_orders'][0] }) {
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
+
+  const testCount = Array.isArray(order.test_ids) ? order.test_ids.length : 0;
+
+  return (
+    <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700/50 hover:border-slate-600/50 transition-colors">
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <FlaskConical className="w-4 h-4 text-purple-400" />
+          <span className="text-white font-medium">{formatDate(order.order_date)}</span>
+        </div>
+        <span className={`px-2 py-0.5 text-xs rounded-full ${
+          order.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+          order.status === 'processing' ? 'bg-yellow-500/20 text-yellow-400' :
+          order.status === 'sample_collected' ? 'bg-blue-500/20 text-blue-400' :
+          'bg-slate-500/20 text-slate-400'
+        }`}>
+          {order.status || 'Pending'}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-4 mb-3">
+        <span className="text-sm text-slate-400">{testCount} test(s)</span>
+        {order.booking_type && (
+          <span className={`px-2 py-0.5 text-xs rounded-full ${
+            order.booking_type === 'home_collection' ? 'bg-purple-500/20 text-purple-400' :
+            'bg-teal-500/20 text-teal-400'
+          }`}>
+            {order.booking_type === 'home_collection' ? 'Home Collection' : 'In-Clinic'}
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between pt-3 border-t border-slate-700/50 text-xs">
+        {order.total_amount ? (
+          <span className="text-white">₹{order.total_amount.toLocaleString()}</span>
+        ) : (
+          <span className="text-slate-500">Amount TBD</span>
+        )}
+        {order.report_status && (
+          <span className={`px-2 py-0.5 rounded-full ${
+            order.report_status === 'ready' ? 'bg-green-500/20 text-green-400' :
+            'bg-slate-500/20 text-slate-400'
+          }`}>
+            Report: {order.report_status}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// ESCALATION CARD COMPONENT
+// ============================================
+
+function EscalationCard({ escalation }: { escalation: PatientDetails['escalations'][0] }) {
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  return (
+    <div className={`p-4 rounded-xl border transition-colors ${
+      escalation.severity === 'critical' || escalation.severity === 'high'
+        ? 'bg-red-500/10 border-red-500/30'
+        : 'bg-slate-800/30 border-slate-700/50'
+    }`}>
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className={`w-4 h-4 ${
+            escalation.severity === 'critical' ? 'text-red-400' :
+            escalation.severity === 'high' ? 'text-orange-400' :
+            'text-yellow-400'
+          }`} />
+          <span className="text-white font-medium">{formatDate(escalation.created_at)}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`px-2 py-0.5 text-xs rounded-full ${
+            escalation.severity === 'critical' ? 'bg-red-500/20 text-red-400' :
+            escalation.severity === 'high' ? 'bg-orange-500/20 text-orange-400' :
+            escalation.severity === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+            'bg-slate-500/20 text-slate-400'
+          }`}>
+            {escalation.severity || 'medium'}
+          </span>
+          <span className={`px-2 py-0.5 text-xs rounded-full ${
+            escalation.status === 'resolved' ? 'bg-green-500/20 text-green-400' :
+            escalation.status === 'open' ? 'bg-blue-500/20 text-blue-400' :
+            'bg-slate-500/20 text-slate-400'
+          }`}>
+            {escalation.status || 'open'}
+          </span>
+        </div>
+      </div>
+
+      {escalation.reason && (
+        <p className="text-sm text-slate-400">{escalation.reason}</p>
+      )}
+    </div>
+  );
+}
+
+// ============================================
+// MAIN PATIENT DETAIL COMPONENT
+// ============================================
+
+export function PatientDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { organization } = useAuthStore();
-  const [patient, setPatient] = useState<Patient | null>(null);
-  const [consultations, setConsultations] = useState<Consultation[]>([]);
-  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
-  const [labOrders, setLabOrders] = useState<LabOrder[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'consultations' | 'prescriptions' | 'lab_orders'>(
-    'consultations'
-  );
+
+  const [details, setDetails] = useState<PatientDetails | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<TabType>('consultations');
+  const [generatingAnalysis, setGeneratingAnalysis] = useState(false);
 
   useEffect(() => {
-    if (id && organization?.id) {
-      loadPatientData();
-    }
+    const fetchPatientDetails = async () => {
+      if (!id || !organization?.id) return;
+
+      try {
+        const { data, error } = await supabase.rpc('get_patient_details', {
+          patient_uuid: id,
+          org_id: organization.id
+        });
+
+        if (!error && data) {
+          setDetails(data as PatientDetails);
+        }
+      } catch (error) {
+        console.error('Error fetching patient details:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPatientDetails();
   }, [id, organization?.id]);
 
-  const loadPatientData = async () => {
-    try {
-      setIsLoading(true);
-
-      const { data: patientData, error: patientError } = await supabase
-        .from('patients')
-        .select('*')
-        .eq('id', id!)
-        .eq('organization_id', organization!.id)
-        .maybeSingle();
-
-      if (patientError) throw patientError;
-
-      if (!patientData) {
-        toast.error('Patient not found');
-        navigate('/portal/patients');
-        return;
-      }
-
-      setPatient(patientData);
-
-      const [consultationsResult, prescriptionsResult, labOrdersResult] = await Promise.all([
-        supabase
-          .from('consultations')
-          .select('*')
-          .eq('patient_id', id!)
-          .order('consultation_date', { ascending: false }),
-        supabase
-          .from('prescriptions')
-          .select('*')
-          .eq('patient_id', id!)
-          .order('prescription_date', { ascending: false }),
-        supabase
-          .from('lab_orders')
-          .select('*')
-          .eq('patient_id', id!)
-          .order('created_at', { ascending: false }),
-      ]);
-
-      if (consultationsResult.error) throw consultationsResult.error;
-      if (prescriptionsResult.error) throw prescriptionsResult.error;
-      if (labOrdersResult.error) throw labOrdersResult.error;
-
-      const consultationsWithDoctors = await Promise.all(
-        (consultationsResult.data || []).map(async (consultation) => {
-          const { data: staffData } = await supabase
-            .from('org_staff')
-            .select('user_id')
-            .eq('id', consultation.doctor_id)
-            .maybeSingle();
-
-          let doctorName = 'Unknown';
-          if (staffData?.user_id) {
-            const { data: userData } = await supabase
-              .from('auth.users')
-              .select('email')
-              .eq('id', staffData.user_id)
-              .maybeSingle();
-            doctorName = userData?.email || 'Unknown';
-          }
-
-          return { ...consultation, doctor_name: doctorName };
-        })
-      );
-
-      const prescriptionsWithDetails = await Promise.all(
-        (prescriptionsResult.data || []).map(async (prescription) => {
-          const { data: staffData } = await supabase
-            .from('org_staff')
-            .select('user_id')
-            .eq('id', prescription.doctor_id)
-            .maybeSingle();
-
-          let doctorName = 'Unknown';
-          if (staffData?.user_id) {
-            const { data: userData } = await supabase
-              .from('auth.users')
-              .select('email')
-              .eq('id', staffData.user_id)
-              .maybeSingle();
-            doctorName = userData?.email || 'Unknown';
-          }
-
-          const { data: itemsData } = await supabase
-            .from('prescription_items')
-            .select('*')
-            .eq('prescription_id', prescription.id);
-
-          return { ...prescription, doctor_name: doctorName, items: itemsData || [] };
-        })
-      );
-
-      const labOrdersWithDoctors = await Promise.all(
-        (labOrdersResult.data || []).map(async (labOrder) => {
-          const { data: staffData } = await supabase
-            .from('org_staff')
-            .select('user_id')
-            .eq('id', labOrder.doctor_id)
-            .maybeSingle();
-
-          let doctorName = 'Unknown';
-          if (staffData?.user_id) {
-            const { data: userData } = await supabase
-              .from('auth.users')
-              .select('email')
-              .eq('id', staffData.user_id)
-              .maybeSingle();
-            doctorName = userData?.email || 'Unknown';
-          }
-
-          return { ...labOrder, doctor_name: doctorName };
-        })
-      );
-
-      setConsultations(consultationsWithDoctors);
-      setPrescriptions(prescriptionsWithDetails);
-      setLabOrders(labOrdersWithDoctors);
-    } catch (error: any) {
-      console.error('Error loading patient data:', error);
-      toast.error('Failed to load patient data');
-    } finally {
-      setIsLoading(false);
-    }
+  const handleGenerateAnalysis = async () => {
+    // TODO: Connect to n8n workflow for comprehensive patient analysis
+    setGeneratingAnalysis(true);
+    setTimeout(() => {
+      setGeneratingAnalysis(false);
+      alert('Comprehensive Patient Analysis workflow will be implemented via n8n');
+    }, 2000);
   };
 
-  if (isLoading) {
+  if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-slate-400">Loading patient data...</p>
-        </div>
+      <div className="space-y-6 animate-pulse">
+        <div className="h-8 w-32 bg-slate-800 rounded" />
+        <div className="h-48 bg-slate-800 rounded-2xl" />
+        <div className="h-64 bg-slate-800 rounded-2xl" />
       </div>
     );
   }
 
-  if (!patient) {
+  if (!details || !details.patient) {
     return (
       <div className="text-center py-12">
+        <User className="w-12 h-12 text-slate-600 mx-auto mb-3" />
         <p className="text-slate-400">Patient not found</p>
-      </div>
-    );
-  }
-
-  const getGenderDisplay = (gender?: string) => {
-    if (!gender) return '-';
-    return gender.charAt(0).toUpperCase() + gender.slice(1);
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
         <button
           onClick={() => navigate('/portal/patients')}
-          className="inline-flex items-center text-slate-400 hover:text-white transition-colors"
+          className="mt-4 text-teal-400 hover:text-teal-300"
         >
-          <ArrowLeft className="w-5 h-5 mr-2" />
           Back to Patients
         </button>
       </div>
+    );
+  }
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1">
-          <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden sticky top-6">
-            <div className="bg-gradient-to-r from-primary to-secondary p-6">
-              <div className="w-20 h-20 bg-white bg-opacity-20 rounded-full flex items-center justify-center mx-auto mb-4">
-                <User className="w-10 h-10 text-white" />
-              </div>
-              <h2 className="text-2xl font-bold text-white text-center mb-1">
-                {patient.full_name}
-              </h2>
-              <p className="text-white text-opacity-80 text-center text-sm">
-                {patient.age ? `${patient.age} years old` : 'Age not specified'} •{' '}
-                {getGenderDisplay(patient.gender)}
+  const { patient, consultations, prescriptions, lab_orders, chat_history, comprehensive_analysis, escalations } = details;
+
+  const fullAddress = [patient.address_line1, patient.address_line2, patient.city, patient.state, patient.pincode]
+    .filter(Boolean)
+    .join(', ') || patient.address;
+
+  return (
+    <div className="space-y-6">
+      {/* Back Button */}
+      <button
+        onClick={() => navigate('/portal/patients')}
+        className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        <span>Back to Patients</span>
+      </button>
+
+      {/* Patient Header */}
+      <div className="rounded-2xl bg-gradient-to-r from-slate-800/50 to-slate-800/30 border border-slate-700/50 p-6">
+        <div className="flex flex-col lg:flex-row lg:items-start gap-6">
+          {/* Avatar & Basic Info */}
+          <div className="flex items-center gap-4">
+            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 flex items-center justify-center text-white font-bold text-2xl shadow-lg shadow-teal-500/25">
+              {patient.full_name?.charAt(0) || 'P'}
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white">{patient.full_name}</h1>
+              <p className="text-slate-400">
+                {patient.gender || 'N/A'} • {patient.age ? `${patient.age} years` : 'Age N/A'}
+                {patient.blood_group && ` • Blood: ${patient.blood_group}`}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                Registered: {new Date(patient.created_at).toLocaleDateString('en-IN')}
               </p>
             </div>
-
-            <div className="p-6 space-y-4">
-              <div>
-                <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">
-                  Contact Information
-                </div>
-                <div className="space-y-3">
-                  {patient.phone && (
-                    <div className="flex items-center space-x-3">
-                      <Phone className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                      <span className="text-sm text-slate-300">{patient.phone}</span>
-                    </div>
-                  )}
-                  {patient.email && (
-                    <div className="flex items-center space-x-3">
-                      <Mail className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                      <span className="text-sm text-slate-300 break-all">{patient.email}</span>
-                    </div>
-                  )}
-                  {patient.address && (
-                    <div className="flex items-start space-x-3">
-                      <MapPin className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
-                      <span className="text-sm text-slate-300">{patient.address}</span>
-                    </div>
-                  )}
-                  {!patient.phone && !patient.email && !patient.address && (
-                    <p className="text-sm text-slate-500 italic">No contact information</p>
-                  )}
-                </div>
-              </div>
-
-              {patient.medical_history && (
-                <div>
-                  <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">
-                    Medical History
-                  </div>
-                  <div className="bg-slate-900 border border-slate-700 rounded p-3">
-                    <p className="text-sm text-slate-300 whitespace-pre-wrap">
-                      {patient.medical_history}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">
-                  Patient Since
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Calendar className="w-4 h-4 text-slate-400" />
-                  <span className="text-sm text-slate-300">
-                    {new Date(patient.created_at).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
-                  </span>
-                </div>
-              </div>
-
-              {patient.last_visit_date && (
-                <div>
-                  <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">
-                    Last Visit
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Clock className="w-4 h-4 text-slate-400" />
-                    <span className="text-sm text-slate-300">
-                      {new Date(patient.last_visit_date).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                      })}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
-        </div>
 
-        <div className="lg:col-span-2">
-          <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
-            <div className="border-b border-slate-700">
-              <div className="flex space-x-1 p-1">
-                <button
-                  onClick={() => setActiveTab('consultations')}
-                  className={`flex-1 px-4 py-3 text-sm font-medium rounded transition-colors ${
-                    activeTab === 'consultations'
-                      ? 'bg-slate-900 text-white'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-750'
-                  }`}
-                >
-                  <FileText className="w-4 h-4 inline-block mr-2" />
-                  Consultations ({consultations.length})
-                </button>
-                <button
-                  onClick={() => setActiveTab('prescriptions')}
-                  className={`flex-1 px-4 py-3 text-sm font-medium rounded transition-colors ${
-                    activeTab === 'prescriptions'
-                      ? 'bg-slate-900 text-white'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-750'
-                  }`}
-                >
-                  <Pill className="w-4 h-4 inline-block mr-2" />
-                  Prescriptions ({prescriptions.length})
-                </button>
-                <button
-                  onClick={() => setActiveTab('lab_orders')}
-                  className={`flex-1 px-4 py-3 text-sm font-medium rounded transition-colors ${
-                    activeTab === 'lab_orders'
-                      ? 'bg-slate-900 text-white'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-750'
-                  }`}
-                >
-                  <FlaskConical className="w-4 h-4 inline-block mr-2" />
-                  Lab Orders ({labOrders.length})
-                </button>
-              </div>
+          {/* Quick Stats */}
+          <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-4 lg:justify-end">
+            <div className="text-center p-3 rounded-xl bg-slate-800/50">
+              <p className="text-2xl font-bold text-white">{patient.total_visits || 0}</p>
+              <p className="text-xs text-slate-500">Total Visits</p>
             </div>
-
-            <div className="p-6">
-              {activeTab === 'consultations' && (
-                <div className="space-y-4">
-                  {consultations.length === 0 ? (
-                    <div className="text-center py-12">
-                      <FileText className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                      <p className="text-slate-400 mb-2">No consultations yet</p>
-                      <p className="text-sm text-slate-500">
-                        Start a new consultation to begin the patient's medical record
-                      </p>
-                    </div>
-                  ) : (
-                    consultations.map((consultation) => (
-                      <ConsultationCard key={consultation.id} consultation={consultation} />
-                    ))
-                  )}
-                </div>
-              )}
-
-              {activeTab === 'prescriptions' && (
-                <div className="space-y-4">
-                  {prescriptions.length === 0 ? (
-                    <div className="text-center py-12">
-                      <Pill className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                      <p className="text-slate-400 mb-2">No prescriptions yet</p>
-                      <p className="text-sm text-slate-500">
-                        Prescriptions will appear here when issued
-                      </p>
-                    </div>
-                  ) : (
-                    prescriptions.map((prescription) => (
-                      <PrescriptionCard key={prescription.id} prescription={prescription} />
-                    ))
-                  )}
-                </div>
-              )}
-
-              {activeTab === 'lab_orders' && (
-                <div className="space-y-4">
-                  {labOrders.length === 0 ? (
-                    <div className="text-center py-12">
-                      <FlaskConical className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                      <p className="text-slate-400 mb-2">No lab orders yet</p>
-                      <p className="text-sm text-slate-500">Lab orders will appear here when ordered</p>
-                    </div>
-                  ) : (
-                    labOrders.map((labOrder) => <LabOrderCard key={labOrder.id} labOrder={labOrder} />)
-                  )}
-                </div>
-              )}
+            <div className="text-center p-3 rounded-xl bg-slate-800/50">
+              <p className="text-2xl font-bold text-white">{prescriptions?.length || 0}</p>
+              <p className="text-xs text-slate-500">Prescriptions</p>
+            </div>
+            <div className="text-center p-3 rounded-xl bg-slate-800/50">
+              <p className="text-2xl font-bold text-white">{chat_history?.length || 0}</p>
+              <p className="text-xs text-slate-500">Chat Sessions</p>
+            </div>
+            <div className="text-center p-3 rounded-xl bg-slate-800/50">
+              <p className="text-2xl font-bold text-white">{lab_orders?.length || 0}</p>
+              <p className="text-xs text-slate-500">Lab Orders</p>
             </div>
           </div>
         </div>
       </div>
 
-      <button
-        onClick={() => navigate(`/portal/consultations/new?patientId=${patient.id}`)}
-        className="fixed bottom-8 right-8 w-14 h-14 bg-primary hover:bg-opacity-80 text-white rounded-full shadow-2xl flex items-center justify-center transition-all hover:scale-110 z-40"
-      >
-        <Plus className="w-6 h-6" />
-      </button>
+      {/* Two Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column - Patient Info */}
+        <div className="space-y-4">
+          {/* Contact Info */}
+          <div className="rounded-2xl bg-slate-800/30 border border-slate-700/50 p-4">
+            <h3 className="text-white font-semibold mb-4">Contact Information</h3>
+            <div className="space-y-3">
+              <InfoCard icon={Phone} label="Phone" value={patient.phone} color="teal" />
+              <InfoCard icon={Mail} label="Email" value={patient.email} color="blue" />
+              <InfoCard icon={MapPin} label="Address" value={fullAddress} color="purple" />
+            </div>
+          </div>
+
+          {/* Medical Info */}
+          <div className="rounded-2xl bg-slate-800/30 border border-slate-700/50 p-4">
+            <h3 className="text-white font-semibold mb-4">Medical Information</h3>
+            <div className="space-y-3">
+              {patient.known_allergies && patient.known_allergies.length > 0 && (
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+                  <p className="text-xs text-red-400 mb-1">Allergies</p>
+                  <div className="flex flex-wrap gap-1">
+                    {patient.known_allergies.map((allergy, i) => (
+                      <span key={i} className="px-2 py-0.5 text-xs bg-red-500/20 text-red-300 rounded-full">
+                        {allergy}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {patient.chronic_conditions && patient.chronic_conditions.length > 0 && (
+                <div className="p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
+                  <p className="text-xs text-yellow-400 mb-1">Chronic Conditions</p>
+                  <div className="flex flex-wrap gap-1">
+                    {patient.chronic_conditions.map((condition, i) => (
+                      <span key={i} className="px-2 py-0.5 text-xs bg-yellow-500/20 text-yellow-300 rounded-full">
+                        {condition}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!patient.known_allergies?.length && !patient.chronic_conditions?.length && (
+                <p className="text-sm text-slate-500">No medical information recorded</p>
+              )}
+            </div>
+          </div>
+
+          {/* Emergency Contact */}
+          {patient.emergency_contact_name && (
+            <div className="rounded-2xl bg-slate-800/30 border border-slate-700/50 p-4">
+              <h3 className="text-white font-semibold mb-4">Emergency Contact</h3>
+              <div className="space-y-3">
+                <InfoCard icon={User} label="Name" value={patient.emergency_contact_name} />
+                <InfoCard icon={Phone} label="Phone" value={patient.emergency_contact_phone} />
+              </div>
+            </div>
+          )}
+
+          {/* Generate Analysis Button */}
+          <button
+            onClick={handleGenerateAnalysis}
+            disabled={generatingAnalysis}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white font-medium rounded-xl transition-all disabled:opacity-50"
+          >
+            {generatingAnalysis ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Generating Analysis...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                <span>Generate Comprehensive Analysis</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Right Column - History Tabs */}
+        <div className="lg:col-span-2 space-y-4">
+          {/* Tabs */}
+          <div className="flex flex-wrap gap-2">
+            <TabButton 
+              active={activeTab === 'consultations'} 
+              onClick={() => setActiveTab('consultations')}
+              count={consultations?.length}
+            >
+              <Stethoscope className="w-4 h-4" />
+              Consultations
+            </TabButton>
+            <TabButton 
+              active={activeTab === 'prescriptions'} 
+              onClick={() => setActiveTab('prescriptions')}
+              count={prescriptions?.length}
+            >
+              <FileText className="w-4 h-4" />
+              Prescriptions
+            </TabButton>
+            <TabButton 
+              active={activeTab === 'chats'} 
+              onClick={() => setActiveTab('chats')}
+              count={chat_history?.length}
+            >
+              <MessageSquare className="w-4 h-4" />
+              Chat History
+            </TabButton>
+            <TabButton 
+              active={activeTab === 'lab_orders'} 
+              onClick={() => setActiveTab('lab_orders')}
+              count={lab_orders?.length}
+            >
+              <FlaskConical className="w-4 h-4" />
+              Lab Orders
+            </TabButton>
+            <TabButton 
+              active={activeTab === 'escalations'} 
+              onClick={() => setActiveTab('escalations')}
+              count={escalations?.length}
+            >
+              <AlertTriangle className="w-4 h-4" />
+              Escalations
+            </TabButton>
+          </div>
+
+          {/* Tab Content */}
+          <div className="space-y-4">
+            {activeTab === 'consultations' && (
+              consultations?.length > 0 ? (
+                consultations.map((c) => <ConsultationCard key={c.id} consultation={c} />)
+              ) : (
+                <div className="text-center py-8 text-slate-500 rounded-2xl bg-slate-800/20 border border-slate-700/50">
+                  No consultations found
+                </div>
+              )
+            )}
+
+            {activeTab === 'prescriptions' && (
+              prescriptions?.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {prescriptions.map((p) => (
+                    <PrescriptionCard 
+                      key={p.id} 
+                      prescription={p} 
+                      orgSubdomain={organization?.subdomain}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-slate-500 rounded-2xl bg-slate-800/20 border border-slate-700/50">
+                  No prescriptions found
+                </div>
+              )
+            )}
+
+            {activeTab === 'chats' && (
+              chat_history?.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {chat_history.map((c) => <ChatCard key={c.session_id} chat={c} />)}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-slate-500 rounded-2xl bg-slate-800/20 border border-slate-700/50">
+                  No chat history found
+                </div>
+              )
+            )}
+
+            {activeTab === 'lab_orders' && (
+              lab_orders?.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {lab_orders.map((o) => <LabOrderCard key={o.id} order={o} />)}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-slate-500 rounded-2xl bg-slate-800/20 border border-slate-700/50">
+                  No lab orders found
+                </div>
+              )
+            )}
+
+            {activeTab === 'escalations' && (
+              escalations?.length > 0 ? (
+                <div className="space-y-4">
+                  {escalations.map((e) => <EscalationCard key={e.id} escalation={e} />)}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-slate-500 rounded-2xl bg-slate-800/20 border border-slate-700/50">
+                  No escalations found
+                </div>
+              )
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* AI Analysis Section */}
+      {comprehensive_analysis && (
+        <div className="rounded-2xl bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className="text-white font-semibold">AI-Generated Comprehensive Analysis</h3>
+              <p className="text-xs text-slate-500">
+                Generated: {new Date(comprehensive_analysis.generated_at).toLocaleDateString('en-IN')} • 
+                Version {comprehensive_analysis.version}
+              </p>
+            </div>
+          </div>
+          
+          <div className="prose prose-invert max-w-none text-sm text-slate-300 whitespace-pre-wrap">
+            {comprehensive_analysis.analysis_content}
+          </div>
+        </div>
+      )}
     </div>
   );
-};
+}

@@ -1,578 +1,595 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '../../store/authStore';
 import { supabase } from '../../lib/supabaseClient';
-import { Card } from '../../components';
+import { useAuthStore } from '../../store/authStore';
 import {
-  Calendar,
   Users,
+  FileText,
   FlaskConical,
+  Pill,
+  Calendar,
   MessageSquare,
+  AlertTriangle,
   TrendingUp,
-  TrendingDown,
   Clock,
+  Stethoscope,
+  ShoppingCart,
+  CalendarCheck,
   Activity,
+  ArrowUpRight,
+  ArrowDownRight,
+  RefreshCw
 } from 'lucide-react';
-import {
-  LineChart,
-  Line,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts';
 
-interface Metrics {
-  todayConsultations: number;
-  yesterdayConsultations: number;
-  queueLength: number;
-  pendingLabReports: number;
-  activeChats: number;
+// ============================================
+// TYPE DEFINITIONS
+// ============================================
+
+interface DashboardMetrics {
+  patients_registered: number;
+  new_patients_today: number;
+  prescriptions_analyzed: number;
+  prescriptions_today: number;
+  diagnostics_identified: number;
+  medicines_prescribed: number;
+  tests_booked: number;
+  tests_booked_today: number;
+  medicines_ordered: number;
+  total_consultations: number;
+  new_consultations: number;
+  followup_consultations: number;
+  today_consultations: number;
+  pending_consultations: number;
+  total_chats: number;
+  today_chats: number;
+  active_chats: number;
+  clinic_in_loop_count: number;
+  active_escalations: number;
+  high_priority_escalations: number;
+  today_medicines: number;
+  generated_at: string;
 }
 
-interface ConsultationTrend {
+interface WeeklyTrend {
   date: string;
-  count: number;
+  day_name: string;
+  consultations: number;
+  prescriptions: number;
+  chats: number;
+  lab_orders: number;
+  escalations: number;
 }
 
-interface LabStatusData {
-  name: string;
+interface TodaySchedule {
+  date: string;
+  consultations: any[];
+  lab_orders: any[];
+  active_escalations: any[];
+}
+
+// ============================================
+// METRIC CARD COMPONENT
+// ============================================
+
+interface MetricCardProps {
+  title: string;
   value: number;
-  color: string;
+  subtitle?: string;
+  icon: React.ElementType;
+  trend?: number;
+  color: 'teal' | 'blue' | 'purple' | 'orange' | 'green' | 'red' | 'yellow' | 'pink';
+  onClick?: () => void;
 }
 
-interface RecentConsultation {
-  id: string;
-  patient_name: string;
-  consultation_date: string;
-  status: string;
+const colorConfig = {
+  teal: { bg: 'bg-teal-500/10', border: 'border-teal-500/20', icon: 'bg-teal-500', text: 'text-teal-400' },
+  blue: { bg: 'bg-blue-500/10', border: 'border-blue-500/20', icon: 'bg-blue-500', text: 'text-blue-400' },
+  purple: { bg: 'bg-purple-500/10', border: 'border-purple-500/20', icon: 'bg-purple-500', text: 'text-purple-400' },
+  orange: { bg: 'bg-orange-500/10', border: 'border-orange-500/20', icon: 'bg-orange-500', text: 'text-orange-400' },
+  green: { bg: 'bg-green-500/10', border: 'border-green-500/20', icon: 'bg-green-500', text: 'text-green-400' },
+  red: { bg: 'bg-red-500/10', border: 'border-red-500/20', icon: 'bg-red-500', text: 'text-red-400' },
+  yellow: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/20', icon: 'bg-yellow-500', text: 'text-yellow-400' },
+  pink: { bg: 'bg-pink-500/10', border: 'border-pink-500/20', icon: 'bg-pink-500', text: 'text-pink-400' },
+};
+
+function MetricCard({ title, value, subtitle, icon: Icon, trend, color, onClick }: MetricCardProps) {
+  const colors = colorConfig[color];
+  
+  return (
+    <div
+      onClick={onClick}
+      className={`
+        relative overflow-hidden rounded-2xl border p-5
+        ${colors.bg} ${colors.border}
+        ${onClick ? 'cursor-pointer hover:scale-[1.02] transition-transform' : ''}
+      `}
+    >
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <p className="text-slate-400 text-sm font-medium mb-1">{title}</p>
+          <p className="text-3xl font-bold text-white">{value.toLocaleString()}</p>
+          {subtitle && <p className="text-xs text-slate-500 mt-1">{subtitle}</p>}
+          {trend !== undefined && trend !== 0 && (
+            <div className={`flex items-center gap-1 mt-2 text-xs ${trend > 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {trend > 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+              <span>{Math.abs(trend)} today</span>
+            </div>
+          )}
+        </div>
+        <div className={`w-12 h-12 rounded-xl ${colors.icon} flex items-center justify-center shadow-lg`}>
+          <Icon className="w-6 h-6 text-white" />
+        </div>
+      </div>
+    </div>
+  );
 }
 
-interface RecentLabOrder {
-  id: string;
-  patient_name: string;
-  test_names: string;
-  status: string;
-  created_at: string;
+// ============================================
+// QUICK STAT COMPONENT
+// ============================================
+
+function QuickStat({ label, value, icon: Icon }: { label: string; value: number; icon: React.ElementType }) {
+  return (
+    <div className="flex items-center gap-3 p-4 rounded-xl bg-slate-800/50 border border-slate-700/50">
+      <Icon className="w-5 h-5 text-slate-400" />
+      <div>
+        <p className="text-2xl font-bold text-white">{value}</p>
+        <p className="text-xs text-slate-500">{label}</p>
+      </div>
+    </div>
+  );
 }
 
-export const Dashboard = () => {
+// ============================================
+// TREND CHART COMPONENT
+// ============================================
+
+function TrendChart({ data, title }: { data: WeeklyTrend[]; title: string }) {
+  if (!data || data.length === 0) {
+    return (
+      <div className="rounded-2xl bg-slate-800/30 border border-slate-700/50 p-6">
+        <h3 className="text-white font-semibold mb-4">{title}</h3>
+        <div className="h-48 flex items-center justify-center text-slate-500">
+          No data available
+        </div>
+      </div>
+    );
+  }
+
+  const maxValue = Math.max(
+    ...data.map(d => Math.max(d.prescriptions, d.chats, d.consultations, d.lab_orders))
+  );
+  
+  return (
+    <div className="rounded-2xl bg-slate-800/30 border border-slate-700/50 p-6">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-white font-semibold">{title}</h3>
+        <div className="flex items-center gap-4 text-xs">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-teal-500" />
+            <span className="text-slate-400">Prescriptions</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+            <span className="text-slate-400">Chats</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-purple-500" />
+            <span className="text-slate-400">Consultations</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-orange-500" />
+            <span className="text-slate-400">Lab Orders</span>
+          </div>
+        </div>
+      </div>
+      
+      <div className="flex items-end justify-between gap-3 h-48">
+        {data.map((day, index) => (
+          <div key={index} className="flex-1 flex flex-col items-center gap-2">
+            <div className="w-full flex items-end justify-center gap-1 h-40">
+              <div 
+                className="w-3 bg-gradient-to-t from-teal-600 to-teal-400 rounded-t transition-all duration-500"
+                style={{ height: `${maxValue > 0 ? (day.prescriptions / maxValue) * 100 : 0}%`, minHeight: day.prescriptions > 0 ? '4px' : '0' }}
+                title={`Prescriptions: ${day.prescriptions}`}
+              />
+              <div 
+                className="w-3 bg-gradient-to-t from-blue-600 to-blue-400 rounded-t transition-all duration-500"
+                style={{ height: `${maxValue > 0 ? (day.chats / maxValue) * 100 : 0}%`, minHeight: day.chats > 0 ? '4px' : '0' }}
+                title={`Chats: ${day.chats}`}
+              />
+              <div 
+                className="w-3 bg-gradient-to-t from-purple-600 to-purple-400 rounded-t transition-all duration-500"
+                style={{ height: `${maxValue > 0 ? (day.consultations / maxValue) * 100 : 0}%`, minHeight: day.consultations > 0 ? '4px' : '0' }}
+                title={`Consultations: ${day.consultations}`}
+              />
+              <div 
+                className="w-3 bg-gradient-to-t from-orange-600 to-orange-400 rounded-t transition-all duration-500"
+                style={{ height: `${maxValue > 0 ? (day.lab_orders / maxValue) * 100 : 0}%`, minHeight: day.lab_orders > 0 ? '4px' : '0' }}
+                title={`Lab Orders: ${day.lab_orders}`}
+              />
+            </div>
+            <span className="text-xs text-slate-500">{day.day_name}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// TODAY'S SCHEDULE COMPONENT
+// ============================================
+
+function TodaySchedule({ schedule }: { schedule: TodaySchedule | null }) {
+  const navigate = useNavigate();
+  
+  if (!schedule) {
+    return (
+      <div className="rounded-2xl bg-slate-800/30 border border-slate-700/50 p-6">
+        <h3 className="text-white font-semibold mb-4">Today's Schedule</h3>
+        <div className="h-48 flex items-center justify-center text-slate-500">
+          Loading...
+        </div>
+      </div>
+    );
+  }
+
+  const { consultations = [], lab_orders = [], active_escalations = [] } = schedule;
+
+  return (
+    <div className="rounded-2xl bg-slate-800/30 border border-slate-700/50 p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-white font-semibold">Today's Schedule</h3>
+        <span className="text-xs text-slate-500">
+          {new Date().toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}
+        </span>
+      </div>
+      
+      <div className="space-y-4 max-h-[280px] overflow-y-auto">
+        {/* Consultations */}
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <Stethoscope className="w-4 h-4 text-teal-400" />
+            <span className="text-sm text-slate-400">Consultations ({consultations.length})</span>
+          </div>
+          {consultations.length === 0 ? (
+            <p className="text-xs text-slate-600 pl-6">No consultations scheduled</p>
+          ) : (
+            <div className="space-y-2 pl-6">
+              {consultations.slice(0, 4).map((c: any, i: number) => (
+                <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-slate-800/50 hover:bg-slate-800 transition-colors cursor-pointer"
+                  onClick={() => navigate('/portal/consultations')}>
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-3 h-3 text-slate-500" />
+                    <span className="text-xs text-slate-400">{c.time_slot || 'TBD'}</span>
+                    <span className="text-xs text-white">{c.patient?.name || 'Patient'}</span>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    c.consultation_status === 'confirmed' ? 'bg-green-500/20 text-green-400' :
+                    c.consultation_status === 'scheduled' ? 'bg-blue-500/20 text-blue-400' :
+                    'bg-slate-500/20 text-slate-400'
+                  }`}>
+                    {c.consultation_status || 'pending'}
+                  </span>
+                </div>
+              ))}
+              {consultations.length > 4 && (
+                <p className="text-xs text-teal-400 cursor-pointer hover:underline" onClick={() => navigate('/portal/consultations')}>
+                  +{consultations.length - 4} more...
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Lab Orders */}
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <FlaskConical className="w-4 h-4 text-purple-400" />
+            <span className="text-sm text-slate-400">Lab Orders ({lab_orders.length})</span>
+          </div>
+          {lab_orders.length === 0 ? (
+            <p className="text-xs text-slate-600 pl-6">No lab orders scheduled</p>
+          ) : (
+            <div className="space-y-2 pl-6">
+              {lab_orders.slice(0, 3).map((l: any, i: number) => (
+                <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-slate-800/50 hover:bg-slate-800 transition-colors cursor-pointer"
+                  onClick={() => navigate('/portal/lab-orders')}>
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-3 h-3 text-slate-500" />
+                    <span className="text-xs text-slate-400">{l.time_slot || 'TBD'}</span>
+                    <span className="text-xs text-white">{l.patient?.name || 'Patient'}</span>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    l.booking_type === 'home_collection' ? 'bg-purple-500/20 text-purple-400' :
+                    'bg-teal-500/20 text-teal-400'
+                  }`}>
+                    {l.booking_type === 'home_collection' ? 'Home' : 'Clinic'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Active Escalations */}
+        {active_escalations.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle className="w-4 h-4 text-orange-400" />
+              <span className="text-sm text-slate-400">Active Escalations ({active_escalations.length})</span>
+            </div>
+            <div className="space-y-2 pl-6">
+              {active_escalations.slice(0, 2).map((e: any, i: number) => (
+                <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-orange-500/10 border border-orange-500/20 cursor-pointer hover:bg-orange-500/20 transition-colors"
+                  onClick={() => navigate('/portal/escalations')}>
+                  <span className="text-xs text-white truncate max-w-[180px]">{e.reason || 'Needs attention'}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    e.severity === 'critical' ? 'bg-red-500/20 text-red-400' :
+                    e.severity === 'high' ? 'bg-orange-500/20 text-orange-400' :
+                    'bg-yellow-500/20 text-yellow-400'
+                  }`}>
+                    {e.severity || 'medium'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// RECENT ACTIVITY COMPONENT
+// ============================================
+
+function RecentActivity() {
+  const navigate = useNavigate();
+  
+  return (
+    <div className="rounded-2xl bg-slate-800/30 border border-slate-700/50 p-6">
+      <h3 className="text-white font-semibold mb-4">Quick Actions</h3>
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          onClick={() => navigate('/portal/patients')}
+          className="p-4 rounded-xl bg-teal-500/10 border border-teal-500/20 hover:bg-teal-500/20 transition-colors text-left"
+        >
+          <Users className="w-5 h-5 text-teal-400 mb-2" />
+          <p className="text-sm text-white font-medium">View Patients</p>
+          <p className="text-xs text-slate-500">Browse all patients</p>
+        </button>
+        <button
+          onClick={() => navigate('/portal/consultations')}
+          className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors text-left"
+        >
+          <Calendar className="w-5 h-5 text-purple-400 mb-2" />
+          <p className="text-sm text-white font-medium">Consultations</p>
+          <p className="text-xs text-slate-500">Manage bookings</p>
+        </button>
+        <button
+          onClick={() => navigate('/portal/lab-orders')}
+          className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500/20 transition-colors text-left"
+        >
+          <FlaskConical className="w-5 h-5 text-blue-400 mb-2" />
+          <p className="text-sm text-white font-medium">Lab Orders</p>
+          <p className="text-xs text-slate-500">Track orders</p>
+        </button>
+        <button
+          onClick={() => navigate('/portal/escalations')}
+          className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/20 hover:bg-orange-500/20 transition-colors text-left"
+        >
+          <AlertTriangle className="w-5 h-5 text-orange-400 mb-2" />
+          <p className="text-sm text-white font-medium">Escalations</p>
+          <p className="text-xs text-slate-500">Review alerts</p>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// MAIN DASHBOARD COMPONENT
+// ============================================
+
+export function Dashboard() {
   const navigate = useNavigate();
   const { user, organization } = useAuthStore();
-  const [metrics, setMetrics] = useState<Metrics>({
-    todayConsultations: 0,
-    yesterdayConsultations: 0,
-    queueLength: 0,
-    pendingLabReports: 0,
-    activeChats: 0,
-  });
-  const [consultationTrend, setConsultationTrend] = useState<ConsultationTrend[]>([]);
-  const [labStatusData, setLabStatusData] = useState<LabStatusData[]>([]);
-  const [recentConsultations, setRecentConsultations] = useState<RecentConsultation[]>([]);
-  const [recentLabOrders, setRecentLabOrders] = useState<RecentLabOrder[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const [weeklyTrends, setWeeklyTrends] = useState<WeeklyTrend[]>([]);
+  const [todaySchedule, setTodaySchedule] = useState<TodaySchedule | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchDashboardData = async () => {
+    if (!organization?.id) return;
+
+    try {
+      // Fetch dashboard metrics
+      const { data: metricsData, error: metricsError } = await supabase
+        .rpc('get_dashboard_metrics', { org_id: organization.id });
+      
+      if (!metricsError && metricsData) {
+        setMetrics(metricsData);
+      }
+
+      // Fetch weekly trends
+      const { data: trendsData, error: trendsError } = await supabase
+        .rpc('get_weekly_trends', { org_id: organization.id, days: 7 });
+      
+      if (!trendsError && trendsData) {
+        setWeeklyTrends(Array.isArray(trendsData) ? trendsData : []);
+      }
+
+      // Fetch today's schedule
+      const { data: scheduleData, error: scheduleError } = await supabase
+        .rpc('get_todays_schedule', { org_id: organization.id });
+      
+      if (!scheduleError && scheduleData) {
+        setTodaySchedule(scheduleData);
+      }
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    if (organization?.id) {
-      loadDashboardData();
-    }
+    fetchDashboardData();
+    
+    // Auto-refresh every 5 minutes
+    const interval = setInterval(fetchDashboardData, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, [organization?.id]);
 
-  const loadDashboardData = async () => {
-    try {
-      setIsLoading(true);
-      await Promise.all([
-        loadMetrics(),
-        loadConsultationTrend(),
-        loadLabStatusData(),
-        loadRecentActivity(),
-      ]);
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
-    } finally {
-      setIsLoading(false);
-    }
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchDashboardData();
   };
 
-  const loadMetrics = async () => {
-    const today = new Date().toISOString().split('T')[0];
-    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-
-    const [todayResult, yesterdayResult, queueResult, labResult, chatResult] = await Promise.all([
-      supabase
-        .from('consultations')
-        .select('id', { count: 'exact', head: true })
-        .eq('organization_id', organization!.id)
-        .gte('consultation_date', today)
-        .lt('consultation_date', new Date(Date.now() + 86400000).toISOString().split('T')[0])
-        .neq('status', 'cancelled'),
-
-      supabase
-        .from('consultations')
-        .select('id', { count: 'exact', head: true })
-        .eq('organization_id', organization!.id)
-        .gte('consultation_date', yesterday)
-        .lt('consultation_date', today)
-        .neq('status', 'cancelled'),
-
-      supabase
-        .from('consultations')
-        .select('id', { count: 'exact', head: true })
-        .eq('organization_id', organization!.id)
-        .eq('status', 'scheduled')
-        .gte('consultation_date', new Date().toISOString()),
-
-      supabase
-        .from('lab_orders')
-        .select('id', { count: 'exact', head: true })
-        .eq('organization_id', organization!.id)
-        .in('status', ['pending', 'sample_collected', 'in_progress']),
-
-      supabase
-        .from('chat_sessions')
-        .select('id', { count: 'exact', head: true })
-        .eq('organization_id', organization!.id)
-        .eq('status', 'active'),
-    ]);
-
-    setMetrics({
-      todayConsultations: todayResult.count || 0,
-      yesterdayConsultations: yesterdayResult.count || 0,
-      queueLength: queueResult.count || 0,
-      pendingLabReports: labResult.count || 0,
-      activeChats: chatResult.count || 0,
-    });
-  };
-
-  const loadConsultationTrend = async () => {
-    const last7Days = Array.from({ length: 7 }, (_, i) => {
-      const date = new Date(Date.now() - i * 86400000);
-      return date.toISOString().split('T')[0];
-    }).reverse();
-
-    const trendData = await Promise.all(
-      last7Days.map(async (date) => {
-        const nextDay = new Date(new Date(date).getTime() + 86400000)
-          .toISOString()
-          .split('T')[0];
-
-        const { count } = await supabase
-          .from('consultations')
-          .select('id', { count: 'exact', head: true })
-          .eq('organization_id', organization!.id)
-          .gte('consultation_date', date)
-          .lt('consultation_date', nextDay)
-          .neq('status', 'cancelled');
-
-        return {
-          date: new Date(date).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-          }),
-          count: count || 0,
-        };
-      })
-    );
-
-    setConsultationTrend(trendData);
-  };
-
-  const loadLabStatusData = async () => {
-    const statuses = ['pending', 'sample_collected', 'in_progress', 'completed'];
-    const colors = ['#f59e0b', '#3b82f6', '#8b5cf6', '#10b981'];
-
-    const statusData = await Promise.all(
-      statuses.map(async (status, index) => {
-        const { count } = await supabase
-          .from('lab_orders')
-          .select('id', { count: 'exact', head: true })
-          .eq('organization_id', organization!.id)
-          .eq('status', status);
-
-        return {
-          name: status
-            .split('_')
-            .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-            .join(' '),
-          value: count || 0,
-          color: colors[index],
-        };
-      })
-    );
-
-    setLabStatusData(statusData);
-  };
-
-  const loadRecentActivity = async () => {
-    const { data: consultationsData } = await supabase
-      .from('consultations')
-      .select('id, patient_id, consultation_date, status')
-      .eq('organization_id', organization!.id)
-      .order('created_at', { ascending: false })
-      .limit(5);
-
-    if (consultationsData) {
-      const consultationsWithPatients = await Promise.all(
-        consultationsData.map(async (consultation) => {
-          const { data: patientData } = await supabase
-            .from('patients')
-            .select('full_name')
-            .eq('id', consultation.patient_id)
-            .maybeSingle();
-
-          return {
-            id: consultation.id,
-            patient_name: patientData?.full_name || 'Unknown Patient',
-            consultation_date: consultation.consultation_date,
-            status: consultation.status,
-          };
-        })
-      );
-      setRecentConsultations(consultationsWithPatients);
-    }
-
-    const { data: labOrdersData } = await supabase
-      .from('lab_orders')
-      .select('id, patient_id, status, created_at')
-      .eq('organization_id', organization!.id)
-      .order('created_at', { ascending: false })
-      .limit(5);
-
-    if (labOrdersData) {
-      const labOrdersWithDetails = await Promise.all(
-        labOrdersData.map(async (order) => {
-          const [patientResult, testsResult] = await Promise.all([
-            supabase.from('patients').select('full_name').eq('id', order.patient_id).maybeSingle(),
-            supabase
-              .from('lab_order_tests')
-              .select('lab_tests(name)')
-              .eq('lab_order_id', order.id),
-          ]);
-
-          const testNames =
-            testsResult.data
-              ?.map((t: any) => t.lab_tests?.name)
-              .filter(Boolean)
-              .join(', ') || 'No tests';
-
-          return {
-            id: order.id,
-            patient_name: patientResult.data?.full_name || 'Unknown Patient',
-            test_names: testNames,
-            status: order.status,
-            created_at: order.created_at,
-          };
-        })
-      );
-      setRecentLabOrders(labOrdersWithDetails);
-    }
-  };
-
-  const getTrendIndicator = () => {
-    const diff = metrics.todayConsultations - metrics.yesterdayConsultations;
-    if (diff > 0) {
-      return (
-        <span className="inline-flex items-center text-green-400 text-sm">
-          <TrendingUp className="w-4 h-4 mr-1" />+{diff} vs yesterday
-        </span>
-      );
-    } else if (diff < 0) {
-      return (
-        <span className="inline-flex items-center text-red-400 text-sm">
-          <TrendingDown className="w-4 h-4 mr-1" />
-          {diff} vs yesterday
-        </span>
-      );
-    }
-    return <span className="text-slate-400 text-sm">Same as yesterday</span>;
-  };
-
-  const getStatusBadge = (status: string) => {
-    const styles: { [key: string]: string } = {
-      scheduled: 'bg-blue-900 text-blue-300 border-blue-700',
-      completed: 'bg-green-900 text-green-300 border-green-700',
-      in_progress: 'bg-amber-900 text-amber-300 border-amber-700',
-      pending: 'bg-slate-900 text-slate-300 border-slate-700',
-      sample_collected: 'bg-purple-900 text-purple-300 border-purple-700',
-    };
-
+  if (loading) {
     return (
-      <span
-        className={`px-2 py-1 text-xs font-medium rounded border ${
-          styles[status] || styles.pending
-        }`}
-      >
-        {status
-          .split('_')
-          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(' ')}
-      </span>
-    );
-  };
-
-  const formatDateTime = (dateString: string) => {
-    return new Date(dateString).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <div className="bg-gradient-to-r from-primary to-secondary rounded-lg p-8 text-white shadow-xl">
-          <div className="h-8 bg-white bg-opacity-20 rounded w-64 mb-2 animate-pulse"></div>
-          <div className="h-6 bg-white bg-opacity-20 rounded w-48 animate-pulse"></div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {[1, 2, 3, 4].map((i) => (
-            <Card key={i} className="bg-slate-800 border-slate-700">
-              <div className="animate-pulse">
-                <div className="h-4 bg-slate-700 rounded w-32 mb-3"></div>
-                <div className="h-8 bg-slate-700 rounded w-20"></div>
-              </div>
-            </Card>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {[1, 2].map((i) => (
-            <Card key={i} className="bg-slate-800 border-slate-700">
-              <div className="animate-pulse">
-                <div className="h-6 bg-slate-700 rounded w-40 mb-4"></div>
-                <div className="space-y-3">
-                  <div className="h-32 bg-slate-700 rounded"></div>
-                </div>
-              </div>
-            </Card>
+      <div className="space-y-6 animate-pulse">
+        <div className="h-8 w-48 bg-slate-800 rounded" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="h-32 bg-slate-800 rounded-2xl" />
           ))}
         </div>
       </div>
     );
   }
 
-  const widgets = [
-    {
-      title: "Today's Consultations",
-      value: metrics.todayConsultations,
-      icon: Calendar,
-      color: 'text-blue-400',
-      bgColor: 'bg-blue-900 bg-opacity-20',
-      trend: getTrendIndicator(),
-    },
-    {
-      title: 'Queue Length',
-      value: metrics.queueLength,
-      icon: Users,
-      color: 'text-purple-400',
-      bgColor: 'bg-purple-900 bg-opacity-20',
-      subtitle: 'Scheduled appointments',
-    },
-    {
-      title: 'Pending Lab Reports',
-      value: metrics.pendingLabReports,
-      icon: FlaskConical,
-      color: 'text-amber-400',
-      bgColor: 'bg-amber-900 bg-opacity-20',
-      subtitle: 'Awaiting results',
-    },
-    {
-      title: 'Active Chats',
-      value: metrics.activeChats,
-      icon: MessageSquare,
-      color: 'text-green-400',
-      bgColor: 'bg-green-900 bg-opacity-20',
-      subtitle: 'Ongoing conversations',
-    },
-  ];
-
   return (
     <div className="space-y-6">
-      <div className="bg-gradient-to-r from-primary to-secondary rounded-lg p-8 text-white shadow-xl">
-        <h1 className="text-3xl font-bold mb-2">
-          Welcome back, {user?.full_name || 'User'}!
-        </h1>
-        <p className="text-white text-opacity-90 text-lg">
-          {organization?.name || 'Your Organization'}
-        </p>
-        <p className="text-white text-opacity-75 mt-2">
-          Here's what's happening today in your clinic
-        </p>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">
+            Welcome back, {user?.full_name?.split(' ')[0] || 'User'}!
+          </h1>
+          <p className="text-slate-400">
+            {organization?.name || 'Organization'} • Here's what's happening today in your clinic
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-4 py-2 text-sm text-slate-400 hover:text-white bg-slate-800/50 hover:bg-slate-800 rounded-xl transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <Activity className="w-4 h-4" />
+            <span>Last updated: {metrics?.generated_at ? new Date(metrics.generated_at).toLocaleTimeString() : 'Now'}</span>
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {widgets.map((widget) => (
-          <Card key={widget.title} className="bg-slate-800 border-slate-700">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <p className="text-sm text-slate-400 mb-1">{widget.title}</p>
-                <p className="text-3xl font-bold text-white mb-2">{widget.value}</p>
-                {widget.trend && <div className="mt-2">{widget.trend}</div>}
-                {widget.subtitle && (
-                  <p className="text-xs text-slate-500 mt-1">{widget.subtitle}</p>
-                )}
-              </div>
-              <div className={`${widget.bgColor} p-3 rounded-lg`}>
-                <widget.icon className={`w-6 h-6 ${widget.color}`} />
-              </div>
-            </div>
-          </Card>
-        ))}
+      {/* Primary Metrics Row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCard
+          title="Patients Registered"
+          value={metrics?.patients_registered || 0}
+          subtitle={`+${metrics?.new_patients_today || 0} today`}
+          icon={Users}
+          trend={metrics?.new_patients_today}
+          color="teal"
+          onClick={() => navigate('/portal/patients')}
+        />
+        <MetricCard
+          title="Prescriptions Analyzed"
+          value={metrics?.prescriptions_analyzed || 0}
+          subtitle={`${metrics?.prescriptions_today || 0} today`}
+          icon={FileText}
+          trend={metrics?.prescriptions_today}
+          color="blue"
+        />
+        <MetricCard
+          title="Diagnostics Identified"
+          value={metrics?.diagnostics_identified || 0}
+          subtitle="Total tests found"
+          icon={FlaskConical}
+          color="purple"
+          onClick={() => navigate('/portal/lab-orders')}
+        />
+        <MetricCard
+          title="Medicines Prescribed"
+          value={metrics?.medicines_prescribed || 0}
+          subtitle={`${metrics?.today_medicines || 0} today`}
+          icon={Pill}
+          color="green"
+        />
       </div>
 
+      {/* Secondary Metrics Row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCard
+          title="Tests Booked"
+          value={metrics?.tests_booked || 0}
+          subtitle={`${metrics?.tests_booked_today || 0} today`}
+          icon={CalendarCheck}
+          color="orange"
+          onClick={() => navigate('/portal/lab-orders')}
+        />
+        <MetricCard
+          title="Medicines Ordered"
+          value={metrics?.medicines_ordered || 0}
+          icon={ShoppingCart}
+          color="yellow"
+        />
+        <MetricCard
+          title="Total Chats"
+          value={metrics?.total_chats || 0}
+          subtitle={`${metrics?.today_chats || 0} today • ${metrics?.active_chats || 0} active`}
+          icon={MessageSquare}
+          color="blue"
+          onClick={() => navigate('/portal/chat')}
+        />
+        <MetricCard
+          title="Escalations"
+          value={metrics?.active_escalations || 0}
+          subtitle={`${metrics?.high_priority_escalations || 0} high priority`}
+          icon={AlertTriangle}
+          color={metrics?.high_priority_escalations ? 'red' : 'orange'}
+          onClick={() => navigate('/portal/escalations')}
+        />
+      </div>
+
+      {/* Consultations Overview */}
+      <div className="rounded-2xl bg-slate-800/30 border border-slate-700/50 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-white font-semibold">Consultations Overview</h3>
+          <button
+            onClick={() => navigate('/portal/consultations')}
+            className="text-sm text-teal-400 hover:text-teal-300 transition-colors"
+          >
+            View All →
+          </button>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <QuickStat label="Total" value={metrics?.total_consultations || 0} icon={Calendar} />
+          <QuickStat label="New" value={metrics?.new_consultations || 0} icon={Users} />
+          <QuickStat label="Follow-ups" value={metrics?.followup_consultations || 0} icon={TrendingUp} />
+          <QuickStat label="Today" value={metrics?.today_consultations || 0} icon={Clock} />
+          <QuickStat label="Pending" value={metrics?.pending_consultations || 0} icon={Clock} />
+        </div>
+      </div>
+
+      {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="bg-slate-800 border-slate-700">
-          <h2 className="text-xl font-semibold text-white mb-4 flex items-center">
-            <Activity className="w-5 h-5 mr-2 text-primary" />
-            Consultations Last 7 Days
-          </h2>
-          {consultationTrend.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={consultationTrend}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="date" stroke="#94a3b8" style={{ fontSize: '12px' }} />
-                <YAxis stroke="#94a3b8" style={{ fontSize: '12px' }} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1e293b',
-                    border: '1px solid #334155',
-                    borderRadius: '8px',
-                    color: '#fff',
-                  }}
-                />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="count"
-                  name="Consultations"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  dot={{ fill: '#3b82f6', r: 4 }}
-                  activeDot={{ r: 6 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-64">
-              <p className="text-slate-400">No consultation data available</p>
-            </div>
-          )}
-        </Card>
-
-        <Card className="bg-slate-800 border-slate-700">
-          <h2 className="text-xl font-semibold text-white mb-4 flex items-center">
-            <FlaskConical className="w-5 h-5 mr-2 text-primary" />
-            Lab Orders by Status
-          </h2>
-          {labStatusData.some((d) => d.value > 0) ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie
-                  data={labStatusData.filter((d) => d.value > 0)}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {labStatusData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1e293b',
-                    border: '1px solid #334155',
-                    borderRadius: '8px',
-                    color: '#fff',
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-64">
-              <p className="text-slate-400">No lab orders data available</p>
-            </div>
-          )}
-        </Card>
+        <TrendChart data={weeklyTrends} title="7-Day Activity Trends" />
+        <TodaySchedule schedule={todaySchedule} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="bg-slate-800 border-slate-700">
-          <h2 className="text-xl font-semibold text-white mb-4 flex items-center">
-            <Calendar className="w-5 h-5 mr-2 text-primary" />
-            Recent Consultations
-          </h2>
-          {recentConsultations.length > 0 ? (
-            <div className="space-y-2">
-              {recentConsultations.map((consultation) => (
-                <button
-                  key={consultation.id}
-                  onClick={() => navigate(`/portal/consultations/${consultation.id}`)}
-                  className="w-full p-3 bg-slate-750 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors text-left"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-white">
-                      {consultation.patient_name}
-                    </span>
-                    {getStatusBadge(consultation.status)}
-                  </div>
-                  <div className="flex items-center text-xs text-slate-400">
-                    <Clock className="w-3 h-3 mr-1" />
-                    {formatDateTime(consultation.consultation_date)}
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="flex items-center justify-center py-12">
-              <p className="text-slate-400">No recent consultations</p>
-            </div>
-          )}
-        </Card>
-
-        <Card className="bg-slate-800 border-slate-700">
-          <h2 className="text-xl font-semibold text-white mb-4 flex items-center">
-            <FlaskConical className="w-5 h-5 mr-2 text-primary" />
-            Recent Lab Orders
-          </h2>
-          {recentLabOrders.length > 0 ? (
-            <div className="space-y-2">
-              {recentLabOrders.map((order) => (
-                <button
-                  key={order.id}
-                  onClick={() => navigate(`/portal/lab-orders`)}
-                  className="w-full p-3 bg-slate-750 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors text-left"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-white">{order.patient_name}</span>
-                    {getStatusBadge(order.status)}
-                  </div>
-                  <p className="text-xs text-slate-400 mb-2 truncate">{order.test_names}</p>
-                  <div className="flex items-center text-xs text-slate-500">
-                    <Clock className="w-3 h-3 mr-1" />
-                    {formatDateTime(order.created_at)}
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="flex items-center justify-center py-12">
-              <p className="text-slate-400">No recent lab orders</p>
-            </div>
-          )}
-        </Card>
-      </div>
+      {/* Quick Actions */}
+      <RecentActivity />
     </div>
   );
-};
+}
