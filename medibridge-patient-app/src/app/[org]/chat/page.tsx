@@ -7,7 +7,7 @@ import {
   ArrowLeft, Send, Loader2, User, Stethoscope, Calendar, 
   CheckCircle, Building2, Phone, FileText, ChevronDown, 
   ChevronUp, Pill, AlertTriangle, FlaskConical, Clock,
-  Bot, Sparkles
+  Bot, Sparkles, Moon, Sun
 } from 'lucide-react';
 
 // ============================================
@@ -90,6 +90,54 @@ const safeParseArray = (value: any): string[] => {
 };
 
 // ============================================
+// THEME COLORS
+// ============================================
+
+const getThemeColors = (isDark: boolean) => ({
+  // Backgrounds
+  bg: isDark ? 'bg-slate-950' : 'bg-gray-50',
+  bgSecondary: isDark ? 'bg-slate-900' : 'bg-white',
+  bgTertiary: isDark ? 'bg-slate-900/50' : 'bg-gray-100',
+  bgCard: isDark ? 'bg-slate-800/50' : 'bg-white',
+  bgCardHover: isDark ? 'hover:bg-slate-700/30' : 'hover:bg-gray-50',
+  bgInput: isDark ? 'bg-slate-800' : 'bg-white',
+  bgMessage: isDark ? 'bg-slate-800/80' : 'bg-white',
+  bgHighlight: isDark ? 'bg-slate-700/30' : 'bg-gray-100',
+  
+  // Text
+  text: isDark ? 'text-white' : 'text-gray-900',
+  textSecondary: isDark ? 'text-slate-400' : 'text-gray-600',
+  textMuted: isDark ? 'text-slate-500' : 'text-gray-500',
+  textLabel: isDark ? 'text-slate-500' : 'text-gray-500',
+  
+  // Borders
+  border: isDark ? 'border-slate-800' : 'border-gray-200',
+  borderLight: isDark ? 'border-slate-700/50' : 'border-gray-200',
+  borderInput: isDark ? 'border-slate-700' : 'border-gray-300',
+  
+  // Special colors (keep consistent)
+  cyan: 'text-cyan-400',
+  cyanBg: isDark ? 'bg-cyan-500/10' : 'bg-cyan-50',
+  cyanBorder: isDark ? 'border-cyan-500/30' : 'border-cyan-200',
+  green: 'text-green-400',
+  orange: 'text-orange-400',
+  pink: 'text-pink-400',
+  teal: 'text-teal-400',
+  blue: 'text-blue-400',
+  purple: 'text-purple-400',
+  
+  // Badges
+  badgeGreen: isDark ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-700',
+  badgeYellow: isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-700',
+  badgeOrange: isDark ? 'bg-orange-500/20 text-orange-400' : 'bg-orange-100 text-orange-700',
+  badgeTeal: isDark ? 'bg-teal-500/20 text-teal-400' : 'bg-teal-100 text-teal-700',
+  badgePink: isDark ? 'bg-pink-500/20 text-pink-400' : 'bg-pink-100 text-pink-700',
+  
+  // Placeholder
+  placeholder: isDark ? 'placeholder-slate-500' : 'placeholder-gray-400',
+});
+
+// ============================================
 // COLLAPSIBLE CARD COMPONENT
 // ============================================
 
@@ -102,6 +150,7 @@ interface CollapsibleCardProps {
   defaultExpanded?: boolean;
   children: React.ReactNode;
   preview?: React.ReactNode;
+  isDark: boolean;
 }
 
 const CollapsibleCard = ({ 
@@ -109,22 +158,24 @@ const CollapsibleCard = ({
   icon, 
   iconColor, 
   badge, 
-  badgeColor = 'bg-slate-700 text-slate-400',
+  badgeColor = '',
   defaultExpanded = false,
   children,
-  preview 
+  preview,
+  isDark
 }: CollapsibleCardProps) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const colors = getThemeColors(isDark);
 
   return (
-    <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-hidden">
+    <div className={`${colors.bgCard} rounded-xl border ${colors.borderLight} overflow-hidden`}>
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-700/30 transition-colors"
+        className={`w-full px-4 py-3 flex items-center justify-between ${colors.bgCardHover} transition-colors`}
       >
         <div className="flex items-center gap-2">
           <span className={iconColor}>{icon}</span>
-          <span className="text-white font-medium text-sm">{title}</span>
+          <span className={`${colors.text} font-medium text-sm`}>{title}</span>
           {badge !== undefined && (
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badgeColor}`}>
               {badge}
@@ -132,9 +183,9 @@ const CollapsibleCard = ({
           )}
         </div>
         {isExpanded ? (
-          <ChevronUp className="w-4 h-4 text-slate-400" />
+          <ChevronUp className={`w-4 h-4 ${colors.textSecondary}`} />
         ) : (
-          <ChevronDown className="w-4 h-4 text-slate-400" />
+          <ChevronDown className={`w-4 h-4 ${colors.textSecondary}`} />
         )}
       </button>
       
@@ -145,7 +196,7 @@ const CollapsibleCard = ({
       )}
       
       {isExpanded && (
-        <div className="px-4 pb-4 border-t border-slate-700/50 pt-3">
+        <div className={`px-4 pb-4 border-t ${colors.borderLight} pt-3`}>
           {children}
         </div>
       )}
@@ -164,6 +215,7 @@ interface StaticCardProps {
   badge?: string | number;
   badgeColor?: string;
   children: React.ReactNode;
+  isDark: boolean;
 }
 
 const StaticCard = ({ 
@@ -171,14 +223,17 @@ const StaticCard = ({
   icon, 
   iconColor, 
   badge,
-  badgeColor = 'bg-slate-700 text-slate-400',
-  children 
+  badgeColor = '',
+  children,
+  isDark
 }: StaticCardProps) => {
+  const colors = getThemeColors(isDark);
+
   return (
-    <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-hidden">
+    <div className={`${colors.bgCard} rounded-xl border ${colors.borderLight} overflow-hidden`}>
       <div className="px-4 py-3 flex items-center gap-2">
         <span className={iconColor}>{icon}</span>
-        <span className="text-white font-medium text-sm">{title}</span>
+        <span className={`${colors.text} font-medium text-sm`}>{title}</span>
         {badge !== undefined && (
           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badgeColor}`}>
             {badge}
@@ -196,7 +251,9 @@ const StaticCard = ({
 // MARKDOWN RENDERER
 // ============================================
 
-const RenderMarkdown = ({ text, className = '' }: { text: string; className?: string }) => {
+const RenderMarkdown = ({ text, className = '', isDark }: { text: string; className?: string; isDark: boolean }) => {
+  const colors = getThemeColors(isDark);
+  
   if (!text) return null;
 
   const processInline = (content: string): React.ReactNode => {
@@ -232,10 +289,10 @@ const RenderMarkdown = ({ text, className = '' }: { text: string; className?: st
 
         const matchContent = earliestMatch[1];
         if (matchType === 'bold') {
-          parts.push(<strong key={keyIndex++} className="font-semibold text-white">{matchContent}</strong>);
+          parts.push(<strong key={keyIndex++} className={`font-semibold ${colors.text}`}>{matchContent}</strong>);
         } else if (matchType === 'code') {
           parts.push(
-            <code key={keyIndex++} className="px-1.5 py-0.5 bg-slate-700/50 rounded text-cyan-300 text-xs font-mono">
+            <code key={keyIndex++} className={`px-1.5 py-0.5 ${isDark ? 'bg-slate-700/50' : 'bg-gray-100'} rounded text-cyan-500 text-xs font-mono`}>
               {matchContent}
             </code>
           );
@@ -252,27 +309,28 @@ const RenderMarkdown = ({ text, className = '' }: { text: string; className?: st
   };
 
   const lines = text.split('\n');
+  const textColor = isDark ? 'text-slate-200' : 'text-gray-700';
 
   return (
     <div className={`space-y-1.5 ${className}`}>
       {lines.map((line, lineIndex) => {
         if (line.startsWith('### ')) {
           return (
-            <h4 key={lineIndex} className="text-sm font-bold text-white mt-3 mb-1">
+            <h4 key={lineIndex} className={`text-sm font-bold ${colors.text} mt-3 mb-1`}>
               {processInline(line.replace('### ', ''))}
             </h4>
           );
         }
         if (line.startsWith('## ')) {
           return (
-            <h3 key={lineIndex} className="text-base font-bold text-white mt-3 mb-1">
+            <h3 key={lineIndex} className={`text-base font-bold ${colors.text} mt-3 mb-1`}>
               {processInline(line.replace('## ', ''))}
             </h3>
           );
         }
 
         if (line.trim() === '---' || line.trim() === '***') {
-          return <hr key={lineIndex} className="border-slate-600/50 my-3" />;
+          return <hr key={lineIndex} className={`${isDark ? 'border-slate-600/50' : 'border-gray-300'} my-3`} />;
         }
 
         if (line.trim().startsWith('- ') || line.trim().startsWith('• ') || line.trim().startsWith('* ')) {
@@ -280,7 +338,7 @@ const RenderMarkdown = ({ text, className = '' }: { text: string; className?: st
           return (
             <div key={lineIndex} className="flex items-start gap-2 ml-1">
               <span className="text-cyan-400 mt-0.5 text-xs">●</span>
-              <span className="text-slate-200 text-sm">{processInline(content)}</span>
+              <span className={`${textColor} text-sm`}>{processInline(content)}</span>
             </div>
           );
         }
@@ -290,7 +348,7 @@ const RenderMarkdown = ({ text, className = '' }: { text: string; className?: st
           return (
             <div key={lineIndex} className="flex items-start gap-2 ml-1">
               <span className="text-cyan-400 font-medium text-sm min-w-[18px]">{numberedMatch[1]}.</span>
-              <span className="text-slate-200 text-sm">{processInline(numberedMatch[2])}</span>
+              <span className={`${textColor} text-sm`}>{processInline(numberedMatch[2])}</span>
             </div>
           );
         }
@@ -300,7 +358,7 @@ const RenderMarkdown = ({ text, className = '' }: { text: string; className?: st
         }
 
         return (
-          <p key={lineIndex} className="text-slate-200 text-sm leading-relaxed">
+          <p key={lineIndex} className={`${textColor} text-sm leading-relaxed`}>
             {processInline(line)}
           </p>
         );
@@ -321,6 +379,7 @@ interface PrescriptionDetailsProps {
   followUp: any;
   formatDate: (date: string | null) => string;
   getAiSummary: () => string;
+  isDark: boolean;
 }
 
 const PrescriptionDetails = ({
@@ -330,8 +389,11 @@ const PrescriptionDetails = ({
   precautions,
   followUp,
   formatDate,
-  getAiSummary
+  getAiSummary,
+  isDark
 }: PrescriptionDetailsProps) => {
+  const colors = getThemeColors(isDark);
+
   return (
     <div className="space-y-3">
       {/* 1. Prescription Analysis (Collapsible - Collapsed by default) */}
@@ -340,26 +402,27 @@ const PrescriptionDetails = ({
         icon={<CheckCircle className="w-4 h-4" />}
         iconColor="text-green-400"
         defaultExpanded={false}
+        isDark={isDark}
         preview={
-          <p className="text-slate-400 text-xs">
+          <p className={`${colors.textSecondary} text-xs`}>
             {prescription?.patient_name || 'Patient'} • {prescription?.patient_age || '-'} • {prescription?.status === 'analyzed' ? '✓ Analyzed' : 'Processing'}
           </p>
         }
       >
         <div className="space-y-3">
-          <div className="bg-slate-700/30 rounded-lg p-3">
+          <div className={`${colors.bgHighlight} rounded-lg p-3`}>
             <div className="flex items-center gap-2 mb-2">
               <User className="w-3 h-3 text-blue-400" />
               <span className="text-blue-400 text-xs font-medium">Patient Information</span>
             </div>
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div>
-                <p className="text-slate-500">Name</p>
-                <p className="text-white">{prescription?.patient_name || 'Not specified'}</p>
+                <p className={colors.textLabel}>Name</p>
+                <p className={colors.text}>{prescription?.patient_name || 'Not specified'}</p>
               </div>
               <div>
-                <p className="text-slate-500">Age / Gender</p>
-                <p className="text-white">
+                <p className={colors.textLabel}>Age / Gender</p>
+                <p className={colors.text}>
                   {prescription?.patient_age || '-'}
                   {prescription?.patient_gender && ` / ${prescription.patient_gender}`}
                 </p>
@@ -367,20 +430,20 @@ const PrescriptionDetails = ({
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <div className="bg-slate-700/30 rounded-lg p-2">
-              <p className="text-slate-500 text-xs flex items-center gap-1">
+            <div className={`${colors.bgHighlight} rounded-lg p-2`}>
+              <p className={`${colors.textLabel} text-xs flex items-center gap-1`}>
                 <Calendar className="w-3 h-3" /> Date
               </p>
-              <p className="text-white text-xs mt-1">
+              <p className={`${colors.text} text-xs mt-1`}>
                 {formatDate(prescription?.prescription_date_extracted || prescription?.created_at || null)}
               </p>
             </div>
-            <div className="bg-slate-700/30 rounded-lg p-2">
-              <p className="text-slate-500 text-xs">Status</p>
+            <div className={`${colors.bgHighlight} rounded-lg p-2`}>
+              <p className={`${colors.textLabel} text-xs`}>Status</p>
               <span className={`inline-block mt-1 px-2 py-0.5 rounded text-xs font-medium ${
                 prescription?.status === 'analyzed' || prescription?.status === 'completed'
-                  ? 'bg-green-500/20 text-green-400'
-                  : 'bg-yellow-500/20 text-yellow-400'
+                  ? colors.badgeGreen
+                  : colors.badgeYellow
               }`}>
                 {prescription?.status === 'analyzed' || prescription?.status === 'completed' ? '✓ Analyzed' : 'Processing'}
               </span>
@@ -394,19 +457,20 @@ const PrescriptionDetails = ({
         title="AI Analysis Complete"
         icon={<Sparkles className="w-4 h-4" />}
         iconColor="text-cyan-400"
+        isDark={isDark}
       >
         <div className="space-y-3">
           {(prescription?.user_question || prescription?.chief_complaint) && (
             <div>
               <p className="text-cyan-400 text-xs font-medium mb-1">Question Asked:</p>
-              <p className="text-slate-300 text-xs bg-slate-700/30 rounded-lg p-2">
+              <p className={`${colors.textSecondary} text-xs ${colors.bgHighlight} rounded-lg p-2`}>
                 {prescription?.user_question || prescription?.chief_complaint}
               </p>
             </div>
           )}
           <div>
             <p className="text-cyan-400 text-xs font-medium mb-1">AI Summary:</p>
-            <p className="text-slate-300 text-xs leading-relaxed">
+            <p className={`${colors.textSecondary} text-xs leading-relaxed`}>
               {getAiSummary()}
             </p>
           </div>
@@ -419,19 +483,20 @@ const PrescriptionDetails = ({
         icon={<AlertTriangle className="w-4 h-4" />}
         iconColor="text-orange-400"
         badge={precautions.length > 0 ? precautions.length : undefined}
-        badgeColor="bg-orange-500/20 text-orange-400"
+        badgeColor={colors.badgeOrange}
+        isDark={isDark}
       >
         {precautions.length > 0 ? (
           <ul className="space-y-2">
             {precautions.map((precaution, index) => (
-              <li key={index} className="text-slate-300 text-xs flex items-start gap-2">
+              <li key={index} className={`${colors.textSecondary} text-xs flex items-start gap-2`}>
                 <span className="text-orange-400 mt-0.5">•</span>
                 <span>{precaution}</span>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-slate-500 text-sm">No specific precautions noted</p>
+          <p className={`${colors.textMuted} text-sm`}>No specific precautions noted</p>
         )}
       </StaticCard>
 
@@ -441,9 +506,10 @@ const PrescriptionDetails = ({
         icon={<FlaskConical className="w-4 h-4" />}
         iconColor="text-teal-400"
         badge={tests.length > 0 ? tests.length : undefined}
-        badgeColor="bg-teal-500/20 text-teal-400"
+        badgeColor={colors.badgeTeal}
+        isDark={isDark}
         preview={
-          <p className="text-slate-500 text-xs">
+          <p className={`${colors.textMuted} text-xs`}>
             {tests.length > 0 ? `${tests.length} test(s) prescribed` : 'No diagnostic tests prescribed'}
           </p>
         }
@@ -452,15 +518,15 @@ const PrescriptionDetails = ({
           <div className="space-y-2">
             {tests.map((test, index) => (
               <div key={test.id} className="text-sm">
-                <p className="text-white font-medium">{index + 1}. {test.medicine_name}</p>
+                <p className={`${colors.text} font-medium`}>{index + 1}. {test.medicine_name}</p>
                 {test.instructions && (
-                  <p className="text-slate-400 text-xs ml-4">• {test.instructions}</p>
+                  <p className={`${colors.textSecondary} text-xs ml-4`}>• {test.instructions}</p>
                 )}
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-slate-500 text-sm">No diagnostic tests prescribed</p>
+          <p className={`${colors.textMuted} text-sm`}>No diagnostic tests prescribed</p>
         )}
       </CollapsibleCard>
 
@@ -470,50 +536,51 @@ const PrescriptionDetails = ({
         icon={<Pill className="w-4 h-4" />}
         iconColor="text-pink-400"
         badge={medicines.length > 0 ? `${medicines.length} medicine${medicines.length > 1 ? 's' : ''}` : undefined}
-        badgeColor="bg-pink-500/20 text-pink-400"
+        badgeColor={colors.badgePink}
+        isDark={isDark}
         preview={
           medicines.length > 0 ? (
-            <p className="text-slate-400 text-xs">
+            <p className={`${colors.textSecondary} text-xs`}>
               {medicines.slice(0, 2).map(m => m.medicine_name).join(', ')}
               {medicines.length > 2 && ` +${medicines.length - 2} more`}
             </p>
           ) : (
-            <p className="text-slate-500 text-xs">No medicines prescribed</p>
+            <p className={`${colors.textMuted} text-xs`}>No medicines prescribed</p>
           )
         }
       >
         {medicines.length > 0 ? (
           <div className="space-y-2">
             {medicines.map((med, index) => (
-              <div key={med.id} className="bg-slate-700/30 rounded-lg p-3">
-                <p className="text-white font-medium text-sm mb-1">
+              <div key={med.id} className={`${colors.bgHighlight} rounded-lg p-3`}>
+                <p className={`${colors.text} font-medium text-sm mb-1`}>
                   {index + 1}. {med.medicine_name}
                 </p>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                   {med.purpose && (
-                    <p className="text-slate-300"><span className="text-slate-500">Purpose:</span> {med.purpose}</p>
+                    <p className={colors.textSecondary}><span className={colors.textLabel}>Purpose:</span> {med.purpose}</p>
                   )}
                   {med.dosage && (
-                    <p className="text-slate-300"><span className="text-slate-500">Dosage:</span> {med.dosage}</p>
+                    <p className={colors.textSecondary}><span className={colors.textLabel}>Dosage:</span> {med.dosage}</p>
                   )}
                   {med.frequency && (
-                    <p className="text-slate-300"><span className="text-slate-500">Frequency:</span> {med.frequency}</p>
+                    <p className={colors.textSecondary}><span className={colors.textLabel}>Frequency:</span> {med.frequency}</p>
                   )}
                   {med.duration && (
-                    <p className="text-slate-300"><span className="text-slate-500">Duration:</span> {med.duration}</p>
+                    <p className={colors.textSecondary}><span className={colors.textLabel}>Duration:</span> {med.duration}</p>
                   )}
                   {med.timing && (
-                    <p className="text-slate-300"><span className="text-slate-500">Timing:</span> {med.timing}</p>
+                    <p className={colors.textSecondary}><span className={colors.textLabel}>Timing:</span> {med.timing}</p>
                   )}
                   {med.medicine_form && (
-                    <p className="text-slate-300"><span className="text-slate-500">Form:</span> {med.medicine_form}</p>
+                    <p className={colors.textSecondary}><span className={colors.textLabel}>Form:</span> {med.medicine_form}</p>
                   )}
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-slate-500 text-sm">No medicines prescribed</p>
+          <p className={`${colors.textMuted} text-sm`}>No medicines prescribed</p>
         )}
       </CollapsibleCard>
 
@@ -522,23 +589,24 @@ const PrescriptionDetails = ({
         title="Follow Up"
         icon={<Clock className="w-4 h-4" />}
         iconColor="text-blue-400"
+        isDark={isDark}
         preview={
-          <p className="text-slate-400 text-xs">
+          <p className={`${colors.textSecondary} text-xs`}>
             {followUp?.when_to_return || 'As advised by doctor'}
           </p>
         }
       >
         <div className="space-y-2 text-xs">
-          <p className="text-slate-300">
+          <p className={colors.textSecondary}>
             <span className="text-teal-400 font-medium">When to return:</span> {followUp?.when_to_return || 'As advised by doctor'}
           </p>
           {followUp?.warning_signs && (
-            <p className="text-slate-300">
+            <p className={colors.textSecondary}>
               <span className="text-red-400 font-medium">Warning signs:</span> {followUp.warning_signs}
             </p>
           )}
           {followUp?.lifestyle_advice && (
-            <p className="text-slate-300">
+            <p className={colors.textSecondary}>
               <span className="text-green-400 font-medium">Lifestyle advice:</span> {followUp.lifestyle_advice}
             </p>
           )}
@@ -550,27 +618,28 @@ const PrescriptionDetails = ({
         title="Doctor Information"
         icon={<Stethoscope className="w-4 h-4" />}
         iconColor="text-green-400"
+        isDark={isDark}
         preview={
-          <p className="text-slate-400 text-xs">
+          <p className={`${colors.textSecondary} text-xs`}>
             {prescription?.doctor_name || 'Not specified'}
           </p>
         }
       >
         <div className="space-y-2 text-xs">
           <div>
-            <p className="text-slate-500">Doctor Name</p>
-            <p className="text-white font-medium">{prescription?.doctor_name || 'Not specified'}</p>
+            <p className={colors.textLabel}>Doctor Name</p>
+            <p className={`${colors.text} font-medium`}>{prescription?.doctor_name || 'Not specified'}</p>
           </div>
           {prescription?.doctor_qualifications && (
             <div>
-              <p className="text-slate-500">Qualifications</p>
-              <p className="text-white">{prescription.doctor_qualifications}</p>
+              <p className={colors.textLabel}>Qualifications</p>
+              <p className={colors.text}>{prescription.doctor_qualifications}</p>
             </div>
           )}
           {prescription?.doctor_registration && (
             <div>
-              <p className="text-slate-500">Registration No.</p>
-              <p className="text-white">{prescription.doctor_registration}</p>
+              <p className={colors.textLabel}>Registration No.</p>
+              <p className={colors.text}>{prescription.doctor_registration}</p>
             </div>
           )}
         </div>
@@ -581,27 +650,28 @@ const PrescriptionDetails = ({
         title="Clinic Information"
         icon={<Building2 className="w-4 h-4" />}
         iconColor="text-purple-400"
+        isDark={isDark}
         preview={
-          <p className="text-slate-400 text-xs">
+          <p className={`${colors.textSecondary} text-xs`}>
             {prescription?.clinic_name || 'Not specified'}
           </p>
         }
       >
         <div className="space-y-2 text-xs">
           <div>
-            <p className="text-slate-500">Clinic Name</p>
-            <p className="text-white font-medium">{prescription?.clinic_name || 'Not specified'}</p>
+            <p className={colors.textLabel}>Clinic Name</p>
+            <p className={`${colors.text} font-medium`}>{prescription?.clinic_name || 'Not specified'}</p>
           </div>
           {prescription?.clinic_address && (
             <div>
-              <p className="text-slate-500">Address</p>
-              <p className="text-white">{prescription.clinic_address}</p>
+              <p className={colors.textLabel}>Address</p>
+              <p className={colors.text}>{prescription.clinic_address}</p>
             </div>
           )}
           {prescription?.clinic_contact && (
             <div>
-              <p className="text-slate-500">Contact</p>
-              <p className="text-white flex items-center gap-1">
+              <p className={colors.textLabel}>Contact</p>
+              <p className={`${colors.text} flex items-center gap-1`}>
                 <Phone className="w-3 h-3" />
                 {prescription.clinic_contact}
               </p>
@@ -625,6 +695,9 @@ export default function ChatPage() {
   const prescriptionId = searchParams.get('prescription_id');
   const sessionId = searchParams.get('session');
 
+  // Theme state - default to dark
+  const [isDark, setIsDark] = useState(true);
+
   // State
   const [prescription, setPrescription] = useState<PrescriptionData | null>(null);
   const [prescriptionItems, setPrescriptionItems] = useState<PrescriptionItem[]>([]);
@@ -638,12 +711,29 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
 
+  const colors = getThemeColors(isDark);
+
   const defaultQuickQuestions = [
     'What are the side effects?',
     'Can I take this with food?',
     'What if I miss a dose?',
     'Any drug interactions?'
   ];
+
+  // Load theme from localStorage on mount
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('medibridge-theme');
+    if (savedTheme) {
+      setIsDark(savedTheme === 'dark');
+    }
+  }, []);
+
+  // Toggle theme and save to localStorage
+  const toggleTheme = () => {
+    const newTheme = !isDark;
+    setIsDark(newTheme);
+    localStorage.setItem('medibridge-theme', newTheme ? 'dark' : 'light');
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -657,11 +747,11 @@ export default function ChatPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        // Fetch organization name
+        // Fetch organization name by subdomain (matches URL param)
         const { data: orgData, error: orgError } = await supabase
           .from('organizations')
           .select('name')
-          .eq('slug', org)
+          .eq('subdomain', org)
           .single();
         
         if (orgError) {
@@ -671,7 +761,7 @@ export default function ChatPage() {
         if (orgData?.name) {
           setOrgName(orgData.name);
         } else {
-          // Fallback: capitalize the slug
+          // Fallback: capitalize the subdomain
           setOrgName(org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
         }
 
@@ -911,39 +1001,52 @@ export default function ChatPage() {
   // Loading
   if (loading) {
     return (
-      <div className="fixed inset-0 bg-slate-950 flex items-center justify-center z-[9999]">
+      <div className={`fixed inset-0 ${colors.bg} flex items-center justify-center z-[9999]`}>
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-white text-lg">Loading your prescription...</p>
+          <p className={`${colors.text} text-lg`}>Loading your prescription...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 bg-slate-950 flex flex-col z-[9999]">
+    <div className={`fixed inset-0 ${colors.bg} flex flex-col z-[9999] transition-colors duration-300`}>
       
       {/* ============================================ */}
       {/* FIXED TOP HEADER - Full Width */}
       {/* ============================================ */}
-      <header className="bg-slate-900 border-b border-slate-800 flex-shrink-0">
+      <header className={`${colors.bgSecondary} border-b ${colors.border} flex-shrink-0`}>
         <div className="px-4 py-3 flex items-center justify-between relative">
           {/* Left: MediBridge */}
-          <h1 className="text-lg font-bold text-white">MediBridge</h1>
+          <h1 className={`text-lg font-bold ${colors.text}`}>MediBridge</h1>
           
           {/* Center: Organization Name */}
-          <h2 className="text-lg font-bold text-cyan-400 absolute left-1/2 transform -translate-x-1/2">
+          <h2 className="text-lg font-bold text-cyan-500 absolute left-1/2 transform -translate-x-1/2">
             {orgName || 'Loading...'}
           </h2>
           
-          {/* Right: Back Button */}
-          <button
-            onClick={() => router.push(`/${org}/dashboard`)}
-            className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 text-sm transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Back</span>
-          </button>
+          {/* Right: Theme Toggle + Back Button */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleTheme}
+              className={`p-2 rounded-lg ${isDark ? 'bg-slate-800 hover:bg-slate-700' : 'bg-gray-100 hover:bg-gray-200'} transition-colors`}
+              title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {isDark ? (
+                <Sun className="w-4 h-4 text-yellow-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-slate-600" />
+              )}
+            </button>
+            <button
+              onClick={() => router.push(`/${org}/dashboard`)}
+              className="text-cyan-500 hover:text-cyan-400 flex items-center gap-1 text-sm transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -953,16 +1056,16 @@ export default function ChatPage() {
       <div className="hidden lg:flex flex-1 overflow-hidden">
         
         {/* LEFT PANEL - SCROLLABLE MIDDLE */}
-        <div className="w-[40%] flex flex-col bg-slate-900/50">
+        <div className={`w-[40%] flex flex-col ${colors.bgTertiary}`}>
           {/* Left Panel Header */}
-          <div className="p-4 border-b border-slate-800 flex-shrink-0">
+          <div className={`p-4 border-b ${colors.border} flex-shrink-0`}>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center">
                 <FileText className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h2 className="text-white font-semibold text-sm">Prescription Details</h2>
-                <p className="text-slate-400 text-xs">AI-powered insights</p>
+                <h2 className={`${colors.text} font-semibold text-sm`}>Prescription Details</h2>
+                <p className={`${colors.textSecondary} text-xs`}>AI-powered insights</p>
               </div>
             </div>
           </div>
@@ -977,45 +1080,46 @@ export default function ChatPage() {
               followUp={followUp}
               formatDate={formatDate}
               getAiSummary={getAiSummary}
+              isDark={isDark}
             />
           </div>
           
           {/* Left Panel Fixed Footer */}
-          <div className="border-t border-slate-800 p-3 flex-shrink-0 bg-slate-900/80">
-            <p className="text-green-400 text-sm font-medium text-center">सर्वे सन्तु निरामया:</p>
-            <p className="text-orange-400 text-xs text-center mt-0.5">"May all be free from illness"</p>
+          <div className={`border-t ${colors.border} p-3 flex-shrink-0 ${isDark ? 'bg-slate-900/80' : 'bg-white'}`}>
+            <p className="text-green-500 text-sm font-medium text-center">सर्वे सन्तु निरामया:</p>
+            <p className="text-orange-500 text-xs text-center mt-0.5">"May all be free from illness"</p>
           </div>
         </div>
 
         {/* RIGHT PANEL - CHAT */}
-        <div className="w-[60%] flex flex-col bg-slate-950">
+        <div className={`w-[60%] flex flex-col ${colors.bg}`}>
           
           {/* Right Panel Header */}
-          <div className="p-4 border-b border-slate-800 flex-shrink-0">
+          <div className={`p-4 border-b ${colors.border} flex-shrink-0`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/20">
                   <Bot className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-white font-semibold text-sm">Dr. Bridge</h2>
-                  <p className="text-green-400 text-xs flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></span>
+                  <h2 className={`${colors.text} font-semibold text-sm`}>Dr. Bridge</h2>
+                  <p className="text-green-500 text-xs flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
                     Online • Ready to help
                   </p>
                 </div>
               </div>
               
               {prescription?.patient_name && (
-                <div className="flex items-center gap-2 bg-slate-800/50 pl-2 pr-3 py-1.5 rounded-full">
+                <div className={`flex items-center gap-2 ${isDark ? 'bg-slate-800/50' : 'bg-gray-100'} pl-2 pr-3 py-1.5 rounded-full`}>
                   <div className="w-7 h-7 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
                     <span className="text-white text-xs font-bold">
                       {prescription.patient_name.charAt(0).toUpperCase()}
                     </span>
                   </div>
                   <div className="text-left">
-                    <p className="text-white text-xs font-medium leading-tight">{prescription.patient_name}</p>
-                    <p className="text-slate-400 text-[10px] leading-tight">
+                    <p className={`${colors.text} text-xs font-medium leading-tight`}>{prescription.patient_name}</p>
+                    <p className={`${colors.textSecondary} text-[10px] leading-tight`}>
                       {prescription.patient_age}{prescription.patient_gender ? ` • ${prescription.patient_gender}` : ''}
                     </p>
                   </div>
@@ -1044,14 +1148,14 @@ export default function ChatPage() {
                     className={`max-w-[80%] ${
                       message.role === 'user'
                         ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-2xl rounded-br-md'
-                        : 'bg-slate-800/80 text-white rounded-2xl rounded-bl-md border border-slate-700/50'
+                        : `${colors.bgMessage} ${colors.text} rounded-2xl rounded-bl-md border ${colors.borderLight}`
                     } px-4 py-3 shadow-lg`}
                   >
                     {message.role === 'user' && message.type === 'question' && (
                       <p className="text-cyan-200 font-semibold text-[10px] uppercase tracking-wide mb-1">Your Question</p>
                     )}
                     {message.role === 'assistant' && message.type === 'answer' && (
-                      <p className="text-cyan-400 font-semibold text-[10px] uppercase tracking-wide mb-2">Answer to Your Question</p>
+                      <p className="text-cyan-500 font-semibold text-[10px] uppercase tracking-wide mb-2">Answer to Your Question</p>
                     )}
                     
                     <div className="text-sm leading-relaxed">
@@ -1062,16 +1166,16 @@ export default function ChatPage() {
                             <span className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
                             <span className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
                           </div>
-                          <span className="text-slate-400 text-xs">Thinking...</span>
+                          <span className={colors.textSecondary + ' text-xs'}>Thinking...</span>
                         </div>
                       ) : message.role === 'assistant' ? (
-                        <RenderMarkdown text={message.content} />
+                        <RenderMarkdown text={message.content} isDark={isDark} />
                       ) : (
                         <p className="whitespace-pre-wrap">{message.content}</p>
                       )}
                     </div>
                     
-                    <p className={`text-[10px] mt-2 ${message.role === 'user' ? 'text-cyan-200/70' : 'text-slate-500'}`}>
+                    <p className={`text-[10px] mt-2 ${message.role === 'user' ? 'text-cyan-200/70' : colors.textMuted}`}>
                       {message.timestamp.toLocaleTimeString('en-IN', {
                         hour: '2-digit',
                         minute: '2-digit',
@@ -1094,7 +1198,7 @@ export default function ChatPage() {
           </div>
 
           {/* Right Panel Fixed Footer - Input + Quick Questions */}
-          <div className="border-t border-slate-800 flex-shrink-0 bg-slate-950">
+          <div className={`border-t ${colors.border} flex-shrink-0 ${colors.bg}`}>
             {/* Input Area */}
             <div className="p-4 pb-2">
               <div className="max-w-3xl mx-auto">
@@ -1115,7 +1219,7 @@ export default function ChatPage() {
                       }}
                       placeholder="Ask anything about your prescription..."
                       disabled={sending}
-                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-2xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 disabled:opacity-50 transition-all resize-none text-sm"
+                      className={`w-full px-4 py-3 ${colors.bgInput} border ${colors.borderInput} rounded-2xl ${colors.text} ${colors.placeholder} focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 disabled:opacity-50 transition-all resize-none text-sm`}
                       rows={1}
                       style={{ minHeight: '48px', maxHeight: '120px' }}
                     />
@@ -1143,7 +1247,7 @@ export default function ChatPage() {
                     key={index}
                     onClick={() => handleSendMessage(question)}
                     disabled={sending}
-                    className="flex-shrink-0 px-2.5 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 hover:text-cyan-300 text-[11px] rounded-full border border-cyan-500/30 hover:border-cyan-400/50 transition-all duration-200 disabled:opacity-50 whitespace-nowrap"
+                    className={`flex-shrink-0 px-2.5 py-1 ${colors.cyanBg} hover:bg-cyan-500/20 text-cyan-500 hover:text-cyan-400 text-[11px] rounded-full border ${colors.cyanBorder} hover:border-cyan-400/50 transition-all duration-200 disabled:opacity-50 whitespace-nowrap`}
                   >
                     {question.length > 35 ? question.substring(0, 35) + '...' : question}
                   </button>
@@ -1153,7 +1257,7 @@ export default function ChatPage() {
 
             {/* Footer hint */}
             <div className="pb-3">
-              <p className="text-center text-slate-500 text-xs">
+              <p className={`text-center ${colors.textMuted} text-xs`}>
                 Press Enter to send • Shift+Enter for new line
               </p>
             </div>
@@ -1168,27 +1272,27 @@ export default function ChatPage() {
         <div className="p-4 space-y-4">
           
           {/* Chat Header - Mobile */}
-          <div className="bg-slate-800/50 rounded-xl p-3 flex items-center justify-between">
+          <div className={`${colors.bgCard} rounded-xl p-3 flex items-center justify-between border ${colors.borderLight}`}>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center">
                 <Bot className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h2 className="text-white font-semibold text-sm">Dr. Bridge</h2>
-                <p className="text-green-400 text-xs flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></span>
+                <h2 className={`${colors.text} font-semibold text-sm`}>Dr. Bridge</h2>
+                <p className="text-green-500 text-xs flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
                   Online
                 </p>
               </div>
             </div>
             {prescription?.patient_name && (
-              <div className="flex items-center gap-2 bg-slate-700/50 pl-2 pr-3 py-1.5 rounded-full">
+              <div className={`flex items-center gap-2 ${isDark ? 'bg-slate-700/50' : 'bg-gray-100'} pl-2 pr-3 py-1.5 rounded-full`}>
                 <div className="w-6 h-6 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
                   <span className="text-white text-[10px] font-bold">
                     {prescription.patient_name.charAt(0).toUpperCase()}
                   </span>
                 </div>
-                <p className="text-white text-xs font-medium">{prescription.patient_name.split(' ')[0]}</p>
+                <p className={`${colors.text} text-xs font-medium`}>{prescription.patient_name.split(' ')[0]}</p>
               </div>
             )}
           </div>
@@ -1212,14 +1316,14 @@ export default function ChatPage() {
                   className={`max-w-[85%] ${
                     message.role === 'user'
                       ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-2xl rounded-br-md'
-                      : 'bg-slate-800/80 text-white rounded-2xl rounded-bl-md border border-slate-700/50'
+                      : `${colors.bgMessage} ${colors.text} rounded-2xl rounded-bl-md border ${colors.borderLight}`
                   } px-3 py-2.5 shadow-lg`}
                 >
                   {message.role === 'user' && message.type === 'question' && (
                     <p className="text-cyan-200 font-semibold text-[9px] uppercase tracking-wide mb-1">Your Question</p>
                   )}
                   {message.role === 'assistant' && message.type === 'answer' && (
-                    <p className="text-cyan-400 font-semibold text-[9px] uppercase tracking-wide mb-1.5">Answer to Your Question</p>
+                    <p className="text-cyan-500 font-semibold text-[9px] uppercase tracking-wide mb-1.5">Answer to Your Question</p>
                   )}
                   
                   <div className="text-sm leading-relaxed">
@@ -1230,16 +1334,16 @@ export default function ChatPage() {
                           <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
                           <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
                         </div>
-                        <span className="text-slate-400 text-xs">Thinking...</span>
+                        <span className={colors.textSecondary + ' text-xs'}>Thinking...</span>
                       </div>
                     ) : message.role === 'assistant' ? (
-                      <RenderMarkdown text={message.content} />
+                      <RenderMarkdown text={message.content} isDark={isDark} />
                     ) : (
                       <p className="whitespace-pre-wrap">{message.content}</p>
                     )}
                   </div>
                   
-                  <p className={`text-[9px] mt-1.5 ${message.role === 'user' ? 'text-cyan-200/70' : 'text-slate-500'}`}>
+                  <p className={`text-[9px] mt-1.5 ${message.role === 'user' ? 'text-cyan-200/70' : colors.textMuted}`}>
                     {message.timestamp.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
                   </p>
                 </div>
@@ -1256,7 +1360,7 @@ export default function ChatPage() {
           </div>
 
           {/* Input Area - Mobile */}
-          <div className="bg-slate-900/80 rounded-xl p-3">
+          <div className={`${isDark ? 'bg-slate-900/80' : 'bg-white'} rounded-xl p-3 border ${colors.borderLight}`}>
             <div className="flex gap-2 items-end">
               <textarea
                 value={inputValue}
@@ -1273,7 +1377,7 @@ export default function ChatPage() {
                 }}
                 placeholder="Ask anything..."
                 disabled={sending}
-                className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 disabled:opacity-50 resize-none text-sm"
+                className={`flex-1 px-3 py-2 ${colors.bgInput} border ${colors.borderInput} rounded-xl ${colors.text} ${colors.placeholder} focus:outline-none focus:border-cyan-500 disabled:opacity-50 resize-none text-sm`}
                 rows={1}
                 style={{ minHeight: '40px', maxHeight: '100px' }}
               />
@@ -1293,27 +1397,27 @@ export default function ChatPage() {
                   key={index}
                   onClick={() => handleSendMessage(question)}
                   disabled={sending}
-                  className="flex-shrink-0 px-2 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-[10px] rounded-full border border-cyan-500/30 whitespace-nowrap"
+                  className={`flex-shrink-0 px-2 py-1 ${colors.cyanBg} text-cyan-500 text-[10px] rounded-full border ${colors.cyanBorder} whitespace-nowrap`}
                 >
                   {question.length > 25 ? question.substring(0, 25) + '...' : question}
                 </button>
               ))}
             </div>
             
-            <p className="text-center text-slate-500 text-[10px] mt-2">
+            <p className={`text-center ${colors.textMuted} text-[10px] mt-2`}>
               Press Enter to send • Shift+Enter for new line
             </p>
           </div>
 
           {/* Prescription Details - Below Chat on Mobile */}
-          <div className="pt-4 border-t border-slate-800">
+          <div className={`pt-4 border-t ${colors.border}`}>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center">
                 <FileText className="w-4 h-4 text-white" />
               </div>
               <div>
-                <h2 className="text-white font-semibold text-sm">Prescription Details</h2>
-                <p className="text-slate-400 text-xs">AI-powered insights</p>
+                <h2 className={`${colors.text} font-semibold text-sm`}>Prescription Details</h2>
+                <p className={`${colors.textSecondary} text-xs`}>AI-powered insights</p>
               </div>
             </div>
             
@@ -1325,12 +1429,13 @@ export default function ChatPage() {
               followUp={followUp}
               formatDate={formatDate}
               getAiSummary={getAiSummary}
+              isDark={isDark}
             />
 
             {/* Sanskrit Footer - Mobile */}
             <div className="text-center py-4 mt-4">
-              <p className="text-green-400 text-sm font-medium">सर्वे सन्तु निरामया:</p>
-              <p className="text-orange-400 text-xs mt-1">"May all be free from illness"</p>
+              <p className="text-green-500 text-sm font-medium">सर्वे सन्तु निरामया:</p>
+              <p className="text-orange-500 text-xs mt-1">"May all be free from illness"</p>
             </div>
           </div>
         </div>
@@ -1344,10 +1449,6 @@ export default function ChatPage() {
         .scrollbar-hide {
           -ms-overflow-style: none;
           scrollbar-width: none;
-        }
-        /* Override any parent container styles */
-        body {
-          overflow: hidden;
         }
       `}</style>
     </div>
