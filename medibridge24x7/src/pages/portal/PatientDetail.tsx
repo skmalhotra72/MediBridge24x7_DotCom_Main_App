@@ -498,43 +498,77 @@ function EscalationCard({ escalation }: { escalation: PatientDetails['escalation
 export function PatientDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { organization } = useAuthStore();
+  const { user, organization } = useAuthStore();
 
   const [details, setDetails] = useState<PatientDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>('consultations');
   const [generatingAnalysis, setGeneratingAnalysis] = useState(false);
 
-  useEffect(() => {
-    const fetchPatientDetails = async () => {
-      if (!id || !organization?.id) return;
+  const fetchPatientDetails = async () => {
+    if (!id || !organization?.id) return;
 
-      try {
-        const { data, error } = await supabase.rpc('get_patient_details', {
-          patient_uuid: id,
-          org_id: organization.id
-        });
+    try {
+      const { data, error } = await supabase.rpc('get_patient_details', {
+        patient_uuid: id,
+        org_id: organization.id
+      });
 
-        if (!error && data) {
-          setDetails(data as PatientDetails);
-        }
-      } catch (error) {
-        console.error('Error fetching patient details:', error);
-      } finally {
-        setLoading(false);
+      if (!error && data) {
+        setDetails(data as PatientDetails);
       }
-    };
+    } catch (error) {
+      console.error('Error fetching patient details:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchPatientDetails();
   }, [id, organization?.id]);
 
   const handleGenerateAnalysis = async () => {
-    // TODO: Connect to n8n workflow for comprehensive patient analysis
+    if (!details?.patient || !organization?.id || !user?.id) {
+      alert('Missing required information. Please try again.');
+      return;
+    }
+
     setGeneratingAnalysis(true);
-    setTimeout(() => {
+    
+    try {
+      const webhookUrl = import.meta.env.VITE_N8N_ANALYSIS_WEBHOOK_URL || 
+        'https://n8n.nhcare.in/webhook/patient-comprehensive-analysis';
+      
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          patient_id: details.patient.id,
+          org_id: organization.id,
+          requested_by: 'clinic_staff',
+          requester_id: user.id,
+          requester_name: user.email || 'Clinic Staff',
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        // Refresh patient details to show the new analysis
+        await fetchPatientDetails();
+        alert('✅ Comprehensive analysis generated successfully!');
+      } else {
+        throw new Error(result.error || 'Failed to generate analysis');
+      }
+    } catch (error) {
+      console.error('Error generating analysis:', error);
+      alert('❌ Failed to generate analysis. Please try again.');
+    } finally {
       setGeneratingAnalysis(false);
-      alert('Comprehensive Patient Analysis workflow will be implemented via n8n');
-    }, 2000);
+    }
   };
 
   if (loading) {
