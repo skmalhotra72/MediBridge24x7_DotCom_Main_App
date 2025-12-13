@@ -1,419 +1,309 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
 import { useAuthStore } from '../../store/authStore';
-import { Plus, Edit, Eye, Calendar, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
-import toast from 'react-hot-toast';
+import { 
+  Calendar, 
+  Clock, 
+  Phone, 
+  Video, 
+  Building,
+  Search,
+  Loader2,
+  CheckCircle,
+  XCircle,
+  AlertCircle
+} from 'lucide-react';
 
 interface Consultation {
   id: string;
+  organization_id: string;
   patient_id: string;
   doctor_id: string;
   consultation_date: string;
-  chief_complaint?: string;
-  diagnosis?: string;
-  status: string;
-  patient_name?: string;
-  doctor_name?: string;
-}
-
-interface Doctor {
-  id: string;
-  user_id: string;
-  full_name: string;
+  consultation_type: string;
+  consultation_status: string;
+  chief_complaint: string;
+  notes: string;
+  is_followup: boolean;
+  created_at: string;
+  patient?: {
+    id: string;
+    full_name: string;
+    gender: string;
+    age: number;
+    phone: string;
+    email: string;
+  };
+  doctor?: {
+    id: string;
+    full_name: string;
+  };
 }
 
 export const ConsultationsList = () => {
-  const navigate = useNavigate();
   const { organization } = useAuthStore();
   const [consultations, setConsultations] = useState<Consultation[]>([]);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const [filters, setFilters] = useState({
-    dateFrom: '',
-    dateTo: '',
-    status: '',
-    doctorId: '',
-  });
-  const itemsPerPage = 20;
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
 
   useEffect(() => {
     if (organization?.id) {
-      loadDoctors();
-      loadConsultations();
+      fetchConsultations();
     }
-  }, [organization?.id, currentPage, filters]);
+  }, [organization?.id]);
 
-  const loadDoctors = async () => {
+  const fetchConsultations = async () => {
     try {
-      const { data: staffData, error: staffError } = await supabase
-        .from('org_staff')
-        .select('id, user_id')
-        .eq('organization_id', organization!.id)
-        .eq('role', 'doctor');
-
-      if (staffError) throw staffError;
-
-      const doctorsWithNames = await Promise.all(
-        (staffData || []).map(async (staff) => {
-          const { data: userData } = await supabase
-            .from('users')
-            .select('full_name')
-            .eq('id', staff.user_id)
-            .maybeSingle();
-
-          return {
-            id: staff.id,
-            user_id: staff.user_id,
-            full_name: userData?.full_name || 'Unknown Doctor',
-          };
-        })
-      );
-
-      setDoctors(doctorsWithNames);
-    } catch (error: any) {
-      console.error('Error loading doctors:', error);
-    }
-  };
-
-  const loadConsultations = async () => {
-    try {
-      setIsLoading(true);
-
-      let query = supabase
+      setLoading(true);
+      const { data, error } = await supabase
         .from('consultations')
-        .select('*', { count: 'exact' })
-        .eq('organization_id', organization!.id)
+        .select(`
+          *,
+          patient:patients(id, full_name, gender, age, phone, email),
+          doctor:users(id, full_name)
+        `)
+        .eq('organization_id', organization?.id)
         .order('consultation_date', { ascending: false });
 
-      if (filters.dateFrom) {
-        query = query.gte('consultation_date', filters.dateFrom);
-      }
-
-      if (filters.dateTo) {
-        query = query.lte('consultation_date', filters.dateTo);
-      }
-
-      if (filters.status) {
-        query = query.eq('status', filters.status);
-      }
-
-      if (filters.doctorId) {
-        query = query.eq('doctor_id', filters.doctorId);
-      }
-
-      const from = (currentPage - 1) * itemsPerPage;
-      const to = from + itemsPerPage - 1;
-
-      const { data, error, count } = await query.range(from, to);
-
       if (error) throw error;
-
-      const consultationsWithDetails = await Promise.all(
-        (data || []).map(async (consultation) => {
-          const { data: patientData } = await supabase
-            .from('patients')
-            .select('full_name')
-            .eq('id', consultation.patient_id)
-            .maybeSingle();
-
-          const doctor = doctors.find((d) => d.id === consultation.doctor_id);
-
-          return {
-            ...consultation,
-            patient_name: patientData?.full_name || 'Unknown Patient',
-            doctor_name: doctor?.full_name || 'Unknown Doctor',
-          };
-        })
-      );
-
-      setConsultations(consultationsWithDetails);
-      setTotalCount(count || 0);
-    } catch (error: any) {
-      console.error('Error loading consultations:', error);
-      toast.error('Failed to load consultations');
+      setConsultations(data || []);
+    } catch (error) {
+      console.error('Error fetching consultations:', error);
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
-  const handleFilterChange = (key: string, value: string) => {
-    setFilters({ ...filters, [key]: value });
-    setCurrentPage(1);
+  const formatDate = (dateString: string | null | undefined) => {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+      });
+    } catch {
+      return 'N/A';
+    }
   };
 
-  const clearFilters = () => {
-    setFilters({
-      dateFrom: '',
-      dateTo: '',
-      status: '',
-      doctorId: '',
-    });
-    setCurrentPage(1);
+  const formatTime = (dateString: string | null | undefined) => {
+    if (!dateString) return '';
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleTimeString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return '';
+    }
   };
 
-  const totalPages = Math.ceil(totalCount / itemsPerPage);
-
-  const getStatusBadge = (status: string) => {
-    const styles = {
-      scheduled: 'bg-blue-900 text-blue-300 border-blue-700',
-      completed: 'bg-green-900 text-green-300 border-green-700',
-      cancelled: 'bg-red-900 text-red-300 border-red-700',
-      in_progress: 'bg-amber-900 text-amber-300 border-amber-700',
+  const getStatusBadge = (status: string | null | undefined) => {
+    const safeStatus = status || 'unknown';
+    const statusConfig: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
+      scheduled: { bg: 'bg-blue-500/20', text: 'text-blue-400', icon: <Clock className="w-3 h-3" /> },
+      in_progress: { bg: 'bg-yellow-500/20', text: 'text-yellow-400', icon: <AlertCircle className="w-3 h-3" /> },
+      completed: { bg: 'bg-green-500/20', text: 'text-green-400', icon: <CheckCircle className="w-3 h-3" /> },
+      cancelled: { bg: 'bg-red-500/20', text: 'text-red-400', icon: <XCircle className="w-3 h-3" /> },
+      no_show: { bg: 'bg-gray-500/20', text: 'text-gray-400', icon: <XCircle className="w-3 h-3" /> },
+      unknown: { bg: 'bg-gray-500/20', text: 'text-gray-400', icon: <AlertCircle className="w-3 h-3" /> }
     };
-
+    const config = statusConfig[safeStatus] || statusConfig.unknown;
     return (
-      <span
-        className={`px-2 py-1 text-xs font-medium rounded border ${
-          styles[status as keyof typeof styles] || styles.scheduled
-        }`}
-      >
-        {status.replace('_', ' ').charAt(0).toUpperCase() + status.slice(1).replace('_', ' ')}
+      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+        {config.icon}
+        {safeStatus.replace(/_/g, ' ')}
       </span>
     );
   };
 
-  const hasActiveFilters = filters.dateFrom || filters.dateTo || filters.status || filters.doctorId;
+  const getTypeIcon = (type: string | null | undefined) => {
+    const safeType = type || 'in_clinic';
+    switch (safeType) {
+      case 'video_conference':
+        return <Video className="w-4 h-4 text-purple-400" />;
+      case 'virtual_call':
+        return <Phone className="w-4 h-4 text-blue-400" />;
+      default:
+        return <Building className="w-4 h-4 text-cyan-400" />;
+    }
+  };
+
+  const filteredConsultations = consultations.filter(consultation => {
+    const matchesSearch = 
+      (consultation.patient?.full_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (consultation.chief_complaint || '').toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesStatus = statusFilter === 'all' || consultation.consultation_status === statusFilter;
+    const matchesType = typeFilter === 'all' || consultation.consultation_type === typeFilter;
+    
+    return matchesSearch && matchesStatus && matchesType;
+  });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-cyan-500" />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-white mb-2">Consultations</h1>
-          <p className="text-slate-400">Manage patient consultations and medical records</p>
+    <div className="p-6">
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-white">Consultations</h1>
+        <p className="text-slate-400 text-sm">Manage patient consultations and appointments</p>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-4 mb-6">
+        <div className="flex-1 min-w-[200px]">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search by patient name or complaint..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+            />
+          </div>
         </div>
-        <button
-          onClick={() => navigate('/portal/consultations/new')}
-          className="inline-flex items-center px-4 py-2 bg-primary hover:bg-opacity-80 text-white rounded-lg transition-colors font-medium"
+        
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
         >
-          <Plus className="w-5 h-5 mr-2" />
-          New Consultation
-        </button>
+          <option value="all">All Status</option>
+          <option value="scheduled">Scheduled</option>
+          <option value="in_progress">In Progress</option>
+          <option value="completed">Completed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
+        >
+          <option value="all">All Types</option>
+          <option value="in_clinic">In Clinic</option>
+          <option value="video_conference">Video Conference</option>
+          <option value="virtual_call">Virtual Call</option>
+        </select>
       </div>
 
-      <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
-        <div className="flex items-center space-x-2 mb-4">
-          <Filter className="w-5 h-5 text-slate-400" />
-          <span className="text-sm font-medium text-white">Filters</span>
-          {hasActiveFilters && (
-            <button
-              onClick={clearFilters}
-              className="text-xs text-primary hover:text-opacity-80 ml-auto"
-            >
-              Clear All
-            </button>
-          )}
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+          <p className="text-slate-400 text-xs mb-1">Total</p>
+          <p className="text-2xl font-bold text-white">{consultations.length}</p>
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-xs text-slate-400 mb-2">Date From</label>
-            <input
-              type="date"
-              value={filters.dateFrom}
-              onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs text-slate-400 mb-2">Date To</label>
-            <input
-              type="date"
-              value={filters.dateTo}
-              onChange={(e) => handleFilterChange('dateTo', e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs text-slate-400 mb-2">Status</label>
-            <select
-              value={filters.status}
-              onChange={(e) => handleFilterChange('status', e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-sm"
-            >
-              <option value="">All Statuses</option>
-              <option value="scheduled">Scheduled</option>
-              <option value="in_progress">In Progress</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs text-slate-400 mb-2">Doctor</label>
-            <select
-              value={filters.doctorId}
-              onChange={(e) => handleFilterChange('doctorId', e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-sm"
-            >
-              <option value="">All Doctors</option>
-              {doctors.map((doctor) => (
-                <option key={doctor.id} value={doctor.id}>
-                  {doctor.full_name}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+          <p className="text-blue-400 text-xs mb-1">Scheduled</p>
+          <p className="text-2xl font-bold text-white">
+            {consultations.filter(c => c.consultation_status === 'scheduled').length}
+          </p>
+        </div>
+        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+          <p className="text-green-400 text-xs mb-1">Completed</p>
+          <p className="text-2xl font-bold text-white">
+            {consultations.filter(c => c.consultation_status === 'completed').length}
+          </p>
+        </div>
+        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+          <p className="text-yellow-400 text-xs mb-1">In Progress</p>
+          <p className="text-2xl font-bold text-white">
+            {consultations.filter(c => c.consultation_status === 'in_progress').length}
+          </p>
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="bg-slate-800 border border-slate-700 rounded-lg p-12 flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-slate-400">Loading consultations...</p>
-          </div>
-        </div>
-      ) : consultations.length === 0 ? (
-        <div className="bg-slate-800 border border-slate-700 rounded-lg p-12 text-center">
-          <div className="w-16 h-16 bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Calendar className="w-8 h-8 text-slate-500" />
-          </div>
-          <p className="text-slate-400 mb-2">
-            {hasActiveFilters ? 'No consultations match your filters' : 'No consultations yet'}
-          </p>
-          <p className="text-sm text-slate-500 mb-4">
-            {hasActiveFilters
-              ? 'Try adjusting your filter criteria'
-              : 'Get started by creating your first consultation'}
-          </p>
-          {!hasActiveFilters && (
-            <button
-              onClick={() => navigate('/portal/consultations/new')}
-              className="inline-flex items-center px-4 py-2 bg-primary hover:bg-opacity-80 text-white rounded-lg transition-colors font-medium"
-            >
-              <Plus className="w-5 h-5 mr-2" />
-              New Consultation
-            </button>
-          )}
-        </div>
-      ) : (
-        <>
-          <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-900 border-b border-slate-700">
-                  <tr>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                      Date
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                      Patient
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                      Doctor
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                      Chief Complaint
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-700">
-                  {consultations.map((consultation) => (
-                    <tr key={consultation.id} className="hover:bg-slate-750 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="text-sm font-medium text-white">
-                          {new Date(consultation.consultation_date).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric',
-                          })}
+      {/* Consultations List */}
+      <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-slate-900/50">
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Date</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Patient</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Type</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Chief Complaint</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Follow-up</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-700">
+              {filteredConsultations.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                    No consultations found
+                  </td>
+                </tr>
+              ) : (
+                filteredConsultations.map((consultation) => (
+                  <tr key={consultation.id} className="hover:bg-slate-700/30 transition-colors">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-slate-400" />
+                        <div>
+                          <p className="text-white text-sm">{formatDate(consultation.consultation_date)}</p>
+                          <p className="text-slate-500 text-xs">{formatTime(consultation.created_at)}</p>
                         </div>
-                        <div className="text-xs text-slate-400">
-                          {new Date(consultation.consultation_date).toLocaleTimeString('en-US', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-cyan-500/20 rounded-full flex items-center justify-center">
+                          <span className="text-cyan-400 text-sm font-medium">
+                            {(consultation.patient?.full_name || 'U')[0].toUpperCase()}
+                          </span>
                         </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm text-slate-300">{consultation.patient_name}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm text-slate-300">{consultation.doctor_name}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm text-slate-300">
-                          {consultation.chief_complaint ? (
-                            consultation.chief_complaint.length > 50 ? (
-                              <span title={consultation.chief_complaint}>
-                                {consultation.chief_complaint.substring(0, 50)}...
-                              </span>
-                            ) : (
-                              consultation.chief_complaint
-                            )
-                          ) : (
-                            <span className="text-slate-500">-</span>
-                          )}
+                        <div>
+                          <p className="text-white text-sm font-medium">{consultation.patient?.full_name || 'Unknown'}</p>
+                          <p className="text-slate-500 text-xs">
+                            {consultation.patient?.gender || ''} {consultation.patient?.age ? `• ${consultation.patient.age}y` : ''}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        {getTypeIcon(consultation.consultation_type)}
+                        <span className="text-slate-300 text-sm capitalize">
+                          {(consultation.consultation_type || 'in_clinic').replace(/_/g, ' ')}
                         </span>
-                      </td>
-                      <td className="px-6 py-4">{getStatusBadge(consultation.status)}</td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-end space-x-2">
-                          <button
-                            onClick={() =>
-                              navigate(`/portal/patients/${consultation.patient_id}`)
-                            }
-                            className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-blue-300 bg-blue-900 hover:bg-blue-800 border border-blue-700 rounded-lg transition-colors"
-                          >
-                            <Eye className="w-4 h-4 mr-1" />
-                            Patient
-                          </button>
-                          <button
-                            onClick={() => navigate(`/portal/consultations/${consultation.id}`)}
-                            className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-green-300 bg-green-900 hover:bg-green-800 border border-green-700 rounded-lg transition-colors"
-                          >
-                            <Edit className="w-4 h-4 mr-1" />
-                            Edit
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between bg-slate-800 border border-slate-700 rounded-lg px-6 py-4">
-              <div className="text-sm text-slate-400">
-                Showing {(currentPage - 1) * itemsPerPage + 1} to{' '}
-                {Math.min(currentPage * itemsPerPage, totalCount)} of {totalCount} consultations
-              </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                <span className="text-sm text-slate-300">
-                  Page {currentPage} of {totalPages}
-                </span>
-                <button
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                  className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="text-slate-300 text-sm max-w-[200px] truncate">
+                        {consultation.chief_complaint || 'No complaint specified'}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      {getStatusBadge(consultation.consultation_status)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {consultation.is_followup ? (
+                        <span className="text-cyan-400 text-xs">Yes</span>
+                      ) : (
+                        <span className="text-slate-500 text-xs">No</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 };
