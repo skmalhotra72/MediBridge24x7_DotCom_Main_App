@@ -3,8 +3,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { ArrowRight, FileText, FlaskConical, MessageCircle, Mic, Upload, Camera, X, Check, Loader2, User } from 'lucide-react';
+import { ArrowRight, FileText, FlaskConical, MessageCircle, Mic, Upload, Camera, X, Check, Loader2, User, Sparkles, LogOut } from 'lucide-react';
 import PatientSelector, { PatientInfoBadge } from '@/components/PatientSelector';
+import PatientHealthSummary from '@/components/PatientHealthSummary';
 
 // ============================================================
 // TYPES
@@ -435,6 +436,7 @@ export default function DashboardPage() {
   const [orgName, setOrgName] = useState('');
   const [orgId, setOrgId] = useState('');
   const [userId, setUserId] = useState('');
+  const [userName, setUserName] = useState('');
   const [loading, setLoading] = useState(true);
 
   // Fetch data on mount
@@ -460,6 +462,32 @@ export default function DashboardPage() {
           return;
         }
         setUserId(user.id);
+        setUserName(user.user_metadata?.name || user.email?.split('@')[0] || 'User');
+
+        // Auto-load primary patient (self) for Health Summary
+        const { data: primaryPatient } = await supabase
+          .from('patients')
+          .select('*')
+          .eq('auth_user_id', user.id)
+          .eq('relationship', 'self')
+          .single();
+
+        if (primaryPatient) {
+          setSelectedPatient(primaryPatient as Patient);
+        } else {
+          // If no "self" patient, get the first patient linked to this user
+          const { data: anyPatient } = await supabase
+            .from('patients')
+            .select('*')
+            .eq('auth_user_id', user.id)
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .single();
+          
+          if (anyPatient) {
+            setSelectedPatient(anyPatient as Patient);
+          }
+        }
 
         // Get prescriptions
         const { data: prescriptions } = await supabase
@@ -493,6 +521,12 @@ export default function DashboardPage() {
 
     fetchData();
   }, [org, router, supabase]);
+
+  // Handle logout
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push(`/${org}/auth`);
+  };
 
   // Handle action that requires patient selection
   const handleActionWithPatient = (action: 'prescription' | 'lab' | 'chat') => {
@@ -649,7 +683,7 @@ export default function DashboardPage() {
             {selectedPatient && (
               <button
                 onClick={() => setShowPatientSelector(true)}
-                className="flex items-center gap-2 bg-blue-500/20 border border-blue-500/30 
+                className="hidden sm:flex items-center gap-2 bg-blue-500/20 border border-blue-500/30 
                          rounded-full px-3 py-1.5 hover:bg-blue-500/30 transition-colors"
               >
                 <User className="w-4 h-4 text-blue-400" />
@@ -666,6 +700,25 @@ export default function DashboardPage() {
               Prescriptions
             </button>
             <button className="text-slate-400 hover:text-white text-sm">Profile</button>
+            
+            {/* User Info & Logout */}
+            <div className="flex items-center gap-3 ml-2 pl-4 border-l border-slate-700">
+              <div className="flex items-center gap-2 bg-emerald-500/20 px-3 py-1.5 rounded-full">
+                <div className="w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-xs font-bold">
+                    {userName.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <span className="text-emerald-300 text-sm font-medium hidden sm:inline">{userName}</span>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1.5 text-slate-400 hover:text-red-400 text-sm transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="hidden sm:inline">Logout</span>
+              </button>
+            </div>
           </nav>
         </div>
       </header>
@@ -717,6 +770,17 @@ export default function DashboardPage() {
           onLabReportClick={() => handleActionWithPatient('lab')}
           onChatClick={() => handleActionWithPatient('chat')}
         />
+
+        {/* ============================================================ */}
+        {/* PATIENT HEALTH SUMMARY - Shows automatically for logged-in user */}
+        {/* ============================================================ */}
+        {selectedPatient && orgId && (
+          <PatientHealthSummary
+            patientId={selectedPatient.id}
+            organizationId={orgId}
+            organizationSlug={org}
+          />
+        )}
 
         {/* Recent Activity */}
         <div className="bg-slate-800/50 rounded-2xl p-6 backdrop-blur-sm">
