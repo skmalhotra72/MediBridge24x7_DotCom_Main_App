@@ -7,7 +7,7 @@ import {
   ArrowLeft, Send, Loader2, User, Stethoscope, Calendar, 
   CheckCircle, Building2, Phone, FileText, ChevronDown, 
   ChevronUp, Pill, AlertTriangle, FlaskConical, Clock,
-  Bot, Sparkles, Moon, Sun
+  Bot, Sparkles, Moon, Sun, UserPlus
 } from 'lucide-react';
 
 // ============================================
@@ -708,6 +708,11 @@ export default function ChatPage() {
   const [orgName, setOrgName] = useState('');
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
   
+  // Connect to Doctor state
+  const [escalating, setEscalating] = useState(false);
+  const [escalated, setEscalated] = useState(false);
+  const [orgId, setOrgId] = useState<string | null>(null);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
 
@@ -747,10 +752,10 @@ export default function ChatPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        // Fetch organization name by subdomain (matches URL param)
+        // Fetch organization info by subdomain (matches URL param)
         const { data: orgData, error: orgError } = await supabase
           .from('organizations')
-          .select('name')
+          .select('id, name')
           .eq('subdomain', org)
           .single();
         
@@ -758,8 +763,14 @@ export default function ChatPage() {
           console.error('Error fetching organization:', orgError);
         }
         
-        if (orgData?.name) {
-          setOrgName(orgData.name);
+        if (orgData) {
+          setOrgId(orgData.id);
+          if (orgData.name) {
+            setOrgName(orgData.name);
+          } else {
+            // Fallback: capitalize the subdomain
+            setOrgName(org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
+          }
         } else {
           // Fallback: capitalize the subdomain
           setOrgName(org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
@@ -940,6 +951,169 @@ export default function ChatPage() {
     }
   };
 
+  // Connect to Doctor - Create Escalation (FIXED - always creates new session)
+  const handleConnectToDoctor = async () => {
+    if (escalating || escalated) return;
+    
+    setEscalating(true);
+    
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      // Get or create patient - patient_id is REQUIRED for chat_sessions
+      let patientId = null;
+      
+      // Try to find existing patient by auth_user_id
+      if (user?.id) {
+        const { data: patientData } = await supabase
+          .from('patients')
+          .select('id')
+          .eq('auth_user_id', user.id)
+          .maybeSingle();
+        
+        if (patientData) {
+          patientId = patientData.id;
+        }
+      }
+      
+      // If no patient found by auth_user_id, try to find by prescription patient name
+      if (!patientId && prescription?.patient_name && orgId) {
+        const { data: prescPatient } = await supabase
+          .from('patients')
+          .select('id')
+          .eq('organization_id', orgId)
+          .ilike('full_name', prescription.patient_name)
+          .maybeSingle();
+        
+        if (prescPatient) {
+          patientId = prescPatient.id;
+        }
+      }
+      
+      // If still no patient, create a minimal patient record
+      if (!patientId && orgId) {
+        const { data: newPatient, error: patientError } = await supabase
+          .from('patients')
+          .insert({
+            organization_id: orgId,
+            full_name: prescription?.patient_name || 'Unknown Patient',
+            auth_user_id: user?.id || null,
+            email: user?.email || null,
+          })
+          .select('id')
+          .single();
+        
+        if (!patientError && newPatient) {
+          patientId = newPatient.id;
+        } else {
+          console.error('Error creating patient:', patientError);
+        }
+      }
+      
+      // If we still don't have a patient ID, we can't proceed
+      if (!patientId) {
+        throw new Error('Could not find or create patient record');
+      }
+      
+      // ALWAYS create a new chat session (ignore URL session param - it might not exist in DB)
+      let chatSessionId = null;
+      
+      if (orgId && patientId) {
+        // First check if session from URL exists
+        if (sessionId) {
+          const { data: existingSession } = await supabase
+            .from('chat_sessions')
+            .select('id')
+            .eq('id', sessionId)
+            .maybeSingle();
+          
+          if (existingSession) {
+            // Session exists, update it
+            chatSessionId = sessionId;
+            await supabase
+              .from('chat_sessions')
+              .update({ status: 'escalated' })
+              .eq('id', chatSessionId);
+          }
+        }
+        
+        // If no valid session, create new one
+        if (!chatSessionId) {
+          const { data: newSession, error: sessionError } = await supabase
+            .from('chat_sessions')
+            .insert({
+              organization_id: orgId,
+              patient_id: patientId,
+              prescription_id: prescriptionId || null,
+              status: 'escalated',
+              channel: 'app',
+              chat_summary: `Patient requested doctor connection. Prescription: ${prescription?.patient_name || 'Unknown'}`
+            })
+            .select('id')
+            .single();
+          
+          if (sessionError) {
+            console.error('Error creating chat session:', sessionError);
+            throw sessionError;
+          } else {
+            chatSessionId = newSession?.id;
+          }
+        }
+      }
+      
+      // Create escalation record
+      if (orgId && chatSessionId && patientId) {
+        const escalationData = {
+          organization_id: orgId,
+          patient_id: patientId,
+          chat_session_id: chatSessionId,
+          escalation_type: 'doctor_request',
+          severity: 'medium',
+          status: 'pending',
+          escalation_summary: `Patient ${prescription?.patient_name || 'Unknown'} requested to connect with a doctor regarding their prescription.`,
+          ai_recommendation: 'Patient has requested direct doctor consultation. Please review the chat history and prescription details.',
+        };
+        
+        const { error: escalationError } = await supabase
+          .from('escalations')
+          .insert(escalationData);
+        
+        if (escalationError) {
+          console.error('Error creating escalation:', escalationError);
+          throw escalationError;
+        }
+      }
+      
+      // Add confirmation message to chat
+      const confirmMessage: Message = {
+        id: `system-${Date.now()}`,
+        role: 'assistant',
+        content: `✅ **Your request has been sent to the clinic!**\n\nA doctor from ${orgName || 'the clinic'} will review your case and contact you soon.\n\n**What happens next:**\n- The clinic staff will see your request\n- They will review your prescription and chat history\n- You'll receive a callback or message shortly\n\nIn the meantime, feel free to continue asking me questions about your prescription.`,
+        timestamp: new Date(),
+        type: 'general'
+      };
+      
+      setMessages(prev => [...prev, confirmMessage]);
+      setEscalated(true);
+      
+    } catch (error) {
+      console.error('Error connecting to doctor:', error);
+      
+      // Show error message
+      const errorMessage: Message = {
+        id: `error-${Date.now()}`,
+        role: 'assistant',
+        content: '❌ Sorry, there was an error sending your request. Please try again or contact the clinic directly.',
+        timestamp: new Date(),
+        type: 'general'
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setEscalating(false);
+    }
+  };
+
   // Data helpers
   const medicines = prescriptionItems.filter(item => item.item_type === 'medicine');
   const tests = prescriptionItems.filter(item => item.item_type === 'test');
@@ -1110,21 +1284,53 @@ export default function ChatPage() {
                 </div>
               </div>
               
-              {prescription?.patient_name && (
-                <div className={`flex items-center gap-2 ${isDark ? 'bg-slate-800/50' : 'bg-gray-100'} pl-2 pr-3 py-1.5 rounded-full`}>
-                  <div className="w-7 h-7 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
-                    <span className="text-white text-xs font-bold">
-                      {prescription.patient_name.charAt(0).toUpperCase()}
-                    </span>
+              <div className="flex items-center gap-3">
+                {/* Connect to Doctor Button - Desktop */}
+                <button
+                  onClick={handleConnectToDoctor}
+                  disabled={escalating || escalated}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                    escalated
+                      ? 'bg-green-500/20 text-green-400 cursor-default'
+                      : escalating
+                      ? 'bg-orange-500/20 text-orange-400 cursor-wait'
+                      : 'bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white shadow-lg shadow-orange-500/20 hover:shadow-orange-500/40 hover:scale-105'
+                  }`}
+                >
+                  {escalated ? (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      <span>Request Sent</span>
+                    </>
+                  ) : escalating ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Connecting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="w-4 h-4" />
+                      <span>Connect to Doctor</span>
+                    </>
+                  )}
+                </button>
+
+                {prescription?.patient_name && (
+                  <div className={`flex items-center gap-2 ${isDark ? 'bg-slate-800/50' : 'bg-gray-100'} pl-2 pr-3 py-1.5 rounded-full`}>
+                    <div className="w-7 h-7 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+                      <span className="text-white text-xs font-bold">
+                        {prescription.patient_name.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="text-left">
+                      <p className={`${colors.text} text-xs font-medium leading-tight`}>{prescription.patient_name}</p>
+                      <p className={`${colors.textSecondary} text-[10px] leading-tight`}>
+                        {prescription.patient_age}{prescription.patient_gender ? ` • ${prescription.patient_gender}` : ''}
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-left">
-                    <p className={`${colors.text} text-xs font-medium leading-tight`}>{prescription.patient_name}</p>
-                    <p className={`${colors.textSecondary} text-[10px] leading-tight`}>
-                      {prescription.patient_age}{prescription.patient_gender ? ` • ${prescription.patient_gender}` : ''}
-                    </p>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
 
@@ -1272,29 +1478,61 @@ export default function ChatPage() {
         <div className="p-4 space-y-4">
           
           {/* Chat Header - Mobile */}
-          <div className={`${colors.bgCard} rounded-xl p-3 flex items-center justify-between border ${colors.borderLight}`}>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center">
-                <Bot className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h2 className={`${colors.text} font-semibold text-sm`}>Dr. Bridge</h2>
-                <p className="text-green-500 text-xs flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
-                  Online
-                </p>
-              </div>
-            </div>
-            {prescription?.patient_name && (
-              <div className={`flex items-center gap-2 ${isDark ? 'bg-slate-700/50' : 'bg-gray-100'} pl-2 pr-3 py-1.5 rounded-full`}>
-                <div className="w-6 h-6 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
-                  <span className="text-white text-[10px] font-bold">
-                    {prescription.patient_name.charAt(0).toUpperCase()}
-                  </span>
+          <div className={`${colors.bgCard} rounded-xl p-3 border ${colors.borderLight}`}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center">
+                  <Bot className="w-5 h-5 text-white" />
                 </div>
-                <p className={`${colors.text} text-xs font-medium`}>{prescription.patient_name.split(' ')[0]}</p>
+                <div>
+                  <h2 className={`${colors.text} font-semibold text-sm`}>Dr. Bridge</h2>
+                  <p className="text-green-500 text-xs flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
+                    Online
+                  </p>
+                </div>
               </div>
-            )}
+              {prescription?.patient_name && (
+                <div className={`flex items-center gap-2 ${isDark ? 'bg-slate-700/50' : 'bg-gray-100'} pl-2 pr-3 py-1.5 rounded-full`}>
+                  <div className="w-6 h-6 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-[10px] font-bold">
+                      {prescription.patient_name.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <p className={`${colors.text} text-xs font-medium`}>{prescription.patient_name.split(' ')[0]}</p>
+                </div>
+              )}
+            </div>
+            
+            {/* Connect to Doctor Button - Mobile */}
+            <button
+              onClick={handleConnectToDoctor}
+              disabled={escalating || escalated}
+              className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                escalated
+                  ? 'bg-green-500/20 text-green-400 cursor-default'
+                  : escalating
+                  ? 'bg-orange-500/20 text-orange-400 cursor-wait'
+                  : 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg shadow-orange-500/20'
+              }`}
+            >
+              {escalated ? (
+                <>
+                  <CheckCircle className="w-4 h-4" />
+                  <span>Request Sent to Clinic</span>
+                </>
+              ) : escalating ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Connecting...</span>
+                </>
+              ) : (
+                <>
+                  <UserPlus className="w-4 h-4" />
+                  <span>Connect to Doctor</span>
+                </>
+              )}
+            </button>
           </div>
 
           {/* Chat Messages - Mobile */}
