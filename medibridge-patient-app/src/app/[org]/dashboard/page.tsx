@@ -368,8 +368,8 @@ const UploadModal = ({ isOpen, onClose, onSubmit, isUploading, type, selectedPat
 
           {/* Question Input */}
           <div>
-            <label className="block text-slate-300 text-sm font-medium mb-2">
-              What would you like to know? <span className="text-slate-500">(Optional)</span>
+            <label className="block text-gray-200 text-sm font-medium mb-2">
+              What would you like to know? <span className="text-gray-400">(Optional)</span>
             </label>
             <textarea
               value={question}
@@ -379,7 +379,7 @@ const UploadModal = ({ isOpen, onClose, onSubmit, isUploading, type, selectedPat
                 : "e.g., Are my test results normal? What should I be concerned about?"}
               rows={3}
               className={`w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white 
-                         placeholder-slate-500 text-sm resize-none
+                         placeholder-slate-400 text-sm resize-none
                          focus:outline-none focus:ring-2 ${focusRing}
                          transition-all duration-300`}
             />

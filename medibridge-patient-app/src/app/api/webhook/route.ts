@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const N8N_WEBHOOK_URL = 'https://n8n.nhcare.in/webhook/28465002-1451-4336-8fc7-eb333dec1ef3';
+const N8N_WEBHOOK_URL = 'https://n8n.nhcare.in/webhook/medibridge-chat-v6-test';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();

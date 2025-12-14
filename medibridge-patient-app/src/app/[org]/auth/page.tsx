@@ -1,5 +1,6 @@
 ﻿'use client';
 
+import { isValidIndianPhone, isValidName } from '@/lib/validation';
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useParams } from 'next/navigation';
@@ -20,6 +21,10 @@ export default function AuthPage() {
   const [phone, setPhone] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  // Validation error states
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,6 +55,28 @@ export default function AuthPage() {
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    
+    // Clear previous validation errors
+    setNameError(null);
+    setPhoneError(null);
+    
+    // Validate before submission
+    let hasErrors = false;
+    
+    if (!isValidName(fullName)) {
+      setNameError('Name should only contain letters and spaces (minimum 2 characters)');
+      hasErrors = true;
+    }
+    
+    if (phone && !isValidIndianPhone(phone)) {
+      setPhoneError('Please enter a valid 10-digit mobile number (starting with 6-9)');
+      hasErrors = true;
+    }
+    
+    if (hasErrors) {
+      return; // Stop submission if validation fails
+    }
+    
     setIsLoading(true);
 
     try {
@@ -211,6 +238,7 @@ export default function AuthPage() {
           <form onSubmit={handleSubmit} className="space-y-5">
             {mode === 'signup' && (
               <>
+                {/* Full Name Field with Validation */}
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Full Name
@@ -218,24 +246,81 @@ export default function AuthPage() {
                   <input
                     type="text"
                     value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    className="w-full px-4 py-3 bg-white/5 border-2 border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                    onChange={(e) => {
+                      // Only allow letters and spaces
+                      const value = e.target.value;
+                      const lettersOnly = value.replace(/[^a-zA-Z\s]/g, '');
+                      setFullName(lettersOnly);
+                      // Clear error when user starts typing
+                      if (nameError) setNameError(null);
+                    }}
+                    onBlur={() => {
+                      if (fullName && !isValidName(fullName)) {
+                        setNameError('Name should only contain letters and spaces (minimum 2 characters)');
+                      }
+                    }}
+                    className={`w-full px-4 py-3 bg-white/5 border-2 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 transition-all ${
+                      nameError 
+                        ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' 
+                        : 'border-white/10 focus:border-cyan-500 focus:ring-cyan-500/20'
+                    }`}
                     placeholder="John Doe"
                     required={mode === 'signup'}
                   />
+                  {nameError && (
+                    <p className="mt-2 text-sm text-red-400 flex items-center gap-1">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      {nameError}
+                    </p>
+                  )}
                 </div>
 
+                {/* Phone Number Field with Validation */}
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Phone Number
                   </label>
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full px-4 py-3 bg-white/5 border-2 border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                    placeholder="+91 9876543210"
-                  />
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">+91</span>
+                    <input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => {
+                        // Only allow digits, max 10 characters
+                        const value = e.target.value;
+                        const digitsOnly = value.replace(/\D/g, '').slice(0, 10);
+                        setPhone(digitsOnly);
+                        // Clear error when user starts typing
+                        if (phoneError) setPhoneError(null);
+                      }}
+                      onBlur={() => {
+                        if (phone && !isValidIndianPhone(phone)) {
+                          setPhoneError('Please enter a valid 10-digit mobile number (starting with 6-9)');
+                        }
+                      }}
+                      className={`w-full pl-12 pr-4 py-3 bg-white/5 border-2 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 transition-all ${
+                        phoneError 
+                          ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' 
+                          : 'border-white/10 focus:border-cyan-500 focus:ring-cyan-500/20'
+                      }`}
+                      placeholder="9876543210"
+                    />
+                  </div>
+                  {phoneError && (
+                    <p className="mt-2 text-sm text-red-400 flex items-center gap-1">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      {phoneError}
+                    </p>
+                  )}
+                  {!phoneError && phone && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      {phone.length}/10 digits
+                    </p>
+                  )}
                 </div>
               </>
             )}
