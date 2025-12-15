@@ -890,7 +890,7 @@ export default function ChatPage() {
       const { data: { user } } = await supabase.auth.getUser();
 
       const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
-        'https://n8n.nhcare.in/webhook/28465002-1451-4336-8fc7-eb333dec1ef3';
+        'https://n8n.nhcare.in/webhook/medibridge-chat-v6-test';
 
       const response = await fetch(webhookUrl, {
         method: 'POST',
@@ -951,7 +951,7 @@ export default function ChatPage() {
     }
   };
 
-  // Connect to Doctor - Create Escalation (FIXED - always creates new session)
+  // Connect to Doctor - Create Escalation (FIXED - uses auth_user_id and user.id)
   const handleConnectToDoctor = async () => {
     if (escalating || escalated) return;
     
@@ -963,7 +963,7 @@ export default function ChatPage() {
       // Get or create patient - patient_id is REQUIRED for chat_sessions
       let patientId = null;
       
-      // Try to find existing patient by auth_user_id
+      // FIXED: Try to find existing patient by auth_user_id using user.id
       if (user?.id) {
         const { data: patientData } = await supabase
           .from('patients')
@@ -990,7 +990,7 @@ export default function ChatPage() {
         }
       }
       
-      // If still no patient, create a minimal patient record
+      // FIXED: If still no patient, create a minimal patient record with auth_user_id
       if (!patientId && orgId) {
         const { data: newPatient, error: patientError } = await supabase
           .from('patients')

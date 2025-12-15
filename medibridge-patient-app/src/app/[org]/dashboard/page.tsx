@@ -464,29 +464,17 @@ export default function DashboardPage() {
         setUserId(user.id);
         setUserName(user.user_metadata?.name || user.email?.split('@')[0] || 'User');
 
-        // Auto-load primary patient (self) for Health Summary
-        const { data: primaryPatient } = await supabase
+        // FIXED: Auto-load first patient (no relationship filter, use maybeSingle)
+        const { data: firstPatient } = await supabase
           .from('patients')
           .select('*')
           .eq('auth_user_id', user.id)
-          .eq('relationship', 'self')
-          .single();
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
 
-        if (primaryPatient) {
-          setSelectedPatient(primaryPatient as Patient);
-        } else {
-          // If no "self" patient, get the first patient linked to this user
-          const { data: anyPatient } = await supabase
-            .from('patients')
-            .select('*')
-            .eq('auth_user_id', user.id)
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .single();
-          
-          if (anyPatient) {
-            setSelectedPatient(anyPatient as Patient);
-          }
+        if (firstPatient) {
+          setSelectedPatient(firstPatient as Patient);
         }
 
         // Get prescriptions
@@ -602,7 +590,7 @@ export default function DashboardPage() {
 
       // Send to n8n webhook
       const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || 
-        'https://n8n.nhcare.in/webhook/28465002-1451-4336-8fc7-eb333dec1ef3';
+        'https://n8n.nhcare.in/webhook/medibridge-chat-v6-test';
 
       await fetch(webhookUrl, {
         method: 'POST',

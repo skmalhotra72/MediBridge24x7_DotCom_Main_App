@@ -10,8 +10,8 @@ import { X, User, Plus, Check, Loader2, Users, Calendar, Heart } from 'lucide-re
 
 interface Patient {
   id: string;
-  auth_user_id: string;  // Changed from user_id
-  full_name: string;     // Changed from patient_name
+  auth_user_id: string;
+  full_name: string;
   gender: string | null;
   date_of_birth: string | null;
   age: number | null;
@@ -120,9 +120,9 @@ export default function PatientSelector({
 
     try {
       const patientData: any = {
-        auth_user_id: userId,  // Changed from user_id
+        auth_user_id: userId,
         organization_id: organizationId,
-        full_name: newPatient.patient_name.trim(),  // Changed from patient_name
+        full_name: newPatient.patient_name.trim(),
         gender: newPatient.gender,
         relationship: newPatient.relationship
       };
