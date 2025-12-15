@@ -173,7 +173,7 @@ export default function UploadPage() {
 
       // Call n8n webhook for AI analysis (non-blocking)
       try {
-        const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || 'https://n8n.nhcare.in/webhook/28465002-1451-4336-8fc7-eb333dec1ef3';
+        const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || ' https://n8n.nhcare.in/webhook/medibridge-chat-v6-test ';
         
         const webhookResponse = await fetch(webhookUrl, {
           method: 'POST',
