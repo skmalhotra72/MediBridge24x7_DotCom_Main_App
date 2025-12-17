@@ -93,6 +93,57 @@ const safeParseArray = (value: any): string[] => {
 };
 
 // ============================================
+// EXTRACT AI ANSWER HELPER - CRITICAL FIX
+// This function handles all possible formats of AI answer
+// from response_data (n8n Update Final Status node output)
+// ============================================
+const extractAiAnswer = (data: any): string | null => {
+  if (!data) return null;
+  
+  // 1. First check direct ai_answer field
+  if (data.ai_answer && typeof data.ai_answer === 'string') {
+    return data.ai_answer;
+  }
+  
+  // 2. Check response_data field (this is where n8n stores it)
+  if (data.response_data) {
+    let responseData = data.response_data;
+    
+    // Parse if it's a string
+    if (typeof responseData === 'string') {
+      try {
+        responseData = JSON.parse(responseData);
+      } catch (e) {
+        console.error('Error parsing response_data string:', e);
+        // If it's a plain string, it might be the answer itself
+        if (responseData.length > 50) {
+          return responseData;
+        }
+        return null;
+      }
+    }
+    
+    // Now responseData should be an object
+    // Check for ai_answer (our n8n format)
+    if (responseData.ai_answer) {
+      return responseData.ai_answer;
+    }
+    
+    // Check for output (alternative format)
+    if (responseData.output) {
+      return responseData.output;
+    }
+    
+    // Check for text (another alternative)
+    if (responseData.text) {
+      return responseData.text;
+    }
+  }
+  
+  return null;
+};
+
+// ============================================
 // THEME COLORS
 // ============================================
 
@@ -884,7 +935,7 @@ export default function ChatPage() {
   const [processingStatus, setProcessingStatus] = useState<string>('pending');
   const [processingProgress, setProcessingProgress] = useState<string>('');
   
-  // NEW: Refresh fallback state
+  // Refresh fallback state
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showRefreshHint, setShowRefreshHint] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -943,7 +994,39 @@ export default function ChatPage() {
   }, [prescriptionId, supabase]);
 
   // ============================================
-  // MANUAL REFRESH FUNCTION
+  // ADD AI ANSWER TO MESSAGES HELPER - CRITICAL
+  // This ensures we don't add duplicate messages
+  // ============================================
+  const addAiAnswerToMessages = useCallback((aiAnswer: string) => {
+    if (!aiAnswer) return;
+    
+    setMessages(prev => {
+      // Remove any processing/loading messages
+      const filtered = prev.filter(m => m.id !== 'processing' && m.id !== 'loading');
+      
+      // Check if we already have this exact answer
+      const alreadyHasThisAnswer = filtered.some(
+        m => m.type === 'answer' && m.content === aiAnswer
+      );
+      
+      if (alreadyHasThisAnswer) {
+        console.log('⚠️ AI answer already exists in messages, skipping duplicate');
+        return filtered;
+      }
+      
+      console.log('✅ Adding AI answer to messages');
+      return [...filtered, {
+        id: `ai-answer-${Date.now()}`,
+        role: 'assistant' as const,
+        content: aiAnswer,
+        timestamp: new Date(),
+        type: 'answer' as const
+      }];
+    });
+  }, []);
+
+  // ============================================
+  // MANUAL REFRESH FUNCTION - USES extractAiAnswer
   // ============================================
   const refreshPrescriptionStatus = useCallback(async () => {
     if (!prescriptionId || isRefreshing) return;
@@ -971,6 +1054,7 @@ export default function ChatPage() {
       
       if (!error && data) {
         console.log('✅ Refresh complete:', data.processing_status, data.processing_progress);
+        console.log('📦 Response data:', data.response_data ? 'present' : 'null');
         
         setPrescription(data);
         setProcessingStatus(data.processing_status || 'pending');
@@ -982,28 +1066,17 @@ export default function ChatPage() {
           setSuggestedQuestions(dbQuestions);
         }
         
-        // If completed, fetch items and update messages
+        // If completed, extract AI answer and update messages
         if (data.processing_status === 'completed') {
           setShowRefreshHint(false);
           setProcessingStartTime(null);
           await fetchPrescriptionItems();
           
-          // Add AI response if not already present
-          if (data.ai_answer) {
-            setMessages(prev => {
-              const hasAnswer = prev.some(m => m.type === 'answer' && m.content === data.ai_answer);
-              if (!hasAnswer) {
-                const filtered = prev.filter(m => m.id !== 'processing' && m.id !== 'loading');
-                return [...filtered, {
-                  id: `ai-answer-${Date.now()}`,
-                  role: 'assistant' as const,
-                  content: data.ai_answer!,
-                  timestamp: new Date(),
-                  type: 'answer' as const
-                }];
-              }
-              return prev;
-            });
+          // CRITICAL FIX: Use extractAiAnswer helper
+          const aiAnswer = extractAiAnswer(data);
+          if (aiAnswer) {
+            console.log('📝 Found AI answer via refresh, adding to messages');
+            addAiAnswerToMessages(aiAnswer);
           }
         }
       }
@@ -1012,7 +1085,7 @@ export default function ChatPage() {
     } finally {
       setIsRefreshing(false);
     }
-  }, [prescriptionId, isRefreshing, supabase, fetchPrescriptionItems]);
+  }, [prescriptionId, isRefreshing, supabase, fetchPrescriptionItems, addAiAnswerToMessages]);
 
   // ============================================
   // ELAPSED TIME TRACKER
@@ -1073,7 +1146,7 @@ export default function ChatPage() {
   }, [processingStatus, prescriptionId, refreshPrescriptionStatus]);
 
   // ============================================
-  // SUPABASE REALTIME SUBSCRIPTION
+  // SUPABASE REALTIME SUBSCRIPTION - CRITICAL FIX
   // ============================================
   useEffect(() => {
     if (!prescriptionId) return;
@@ -1105,47 +1178,45 @@ export default function ChatPage() {
             console.log('📈 Processing progress:', newData.processing_progress);
           }
           
+          // ============================================
+          // CRITICAL FIX: Handle completed status
+          // ============================================
           if (newData.processing_status === 'completed') {
             console.log('✅ Processing complete via Realtime!');
             setShowRefreshHint(false);
             setProcessingStartTime(null);
             
-            let responseData = newData.response_data;
-            if (typeof responseData === 'string') {
-              try {
-                responseData = JSON.parse(responseData);
-              } catch (e) {
-                console.error('Error parsing response_data:', e);
-              }
-            }
+            // CRITICAL: Use extractAiAnswer helper to get AI answer from response_data
+            const aiAnswer = extractAiAnswer(newData);
+            console.log('🔍 Extracted AI answer:', aiAnswer ? `${aiAnswer.substring(0, 100)}...` : 'null');
             
+            // Update prescription state
             setPrescription(prev => ({
               ...prev!,
               ...newData,
-              ai_answer: responseData?.output || newData.ai_answer,
-              ai_summary: responseData?.ai_summary || newData.ai_summary,
-              patient_name: responseData?.patient_info?.name || newData.patient_name,
-              doctor_name: responseData?.doctor_info?.name || newData.doctor_name,
+              ai_answer: aiAnswer || newData.ai_answer,
               status: 'analyzed'
             }));
             
-            if (responseData?.suggested_questions) {
-              setSuggestedQuestions(safeParseArray(responseData.suggested_questions));
+            // Update suggested questions if present in response_data
+            if (newData.response_data) {
+              let responseData = newData.response_data;
+              if (typeof responseData === 'string') {
+                try {
+                  responseData = JSON.parse(responseData);
+                } catch (e) {}
+              }
+              if (responseData?.suggested_questions) {
+                setSuggestedQuestions(safeParseArray(responseData.suggested_questions));
+              }
             }
             
-            if (responseData?.output) {
-              setMessages(prev => {
-                const filtered = prev.filter(m => m.id !== 'processing' && m.id !== 'loading');
-                return [...filtered, {
-                  id: `ai-response-${Date.now()}`,
-                  role: 'assistant' as const,
-                  content: responseData.output,
-                  timestamp: new Date(),
-                  type: 'answer' as const
-                }];
-              });
+            // CRITICAL: Add AI answer to messages
+            if (aiAnswer) {
+              addAiAnswerToMessages(aiAnswer);
             }
             
+            // Fetch prescription items
             fetchPrescriptionItems();
           }
           
@@ -1159,7 +1230,7 @@ export default function ChatPage() {
                 const errorData = typeof newData.response_data === 'string' 
                   ? JSON.parse(newData.response_data) 
                   : newData.response_data;
-                errorMessage = errorData.message || errorData.output || errorMessage;
+                errorMessage = errorData.message || errorData.error || errorMessage;
               } catch (e) {}
             }
             
@@ -1184,10 +1255,10 @@ export default function ChatPage() {
       console.log('🔌 Cleaning up Realtime subscription');
       supabase.removeChannel(channel);
     };
-  }, [prescriptionId, supabase, fetchPrescriptionItems]);
+  }, [prescriptionId, supabase, fetchPrescriptionItems, addAiAnswerToMessages]);
 
   // ============================================
-  // INITIAL DATA FETCH
+  // INITIAL DATA FETCH - USES extractAiAnswer
   // ============================================
   useEffect(() => {
     async function fetchData() {
@@ -1196,14 +1267,26 @@ export default function ChatPage() {
         const { data: orgData, error: orgError } = await supabase
           .from('organizations')
           .select('id, name')
-          .eq('subdomain', org)
+          .eq('slug', org)
           .single();
         
         if (!orgError && orgData) {
           setOrgId(orgData.id);
           setOrgName(orgData.name || org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
         } else {
-          setOrgName(org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
+          // Try subdomain field as fallback
+          const { data: orgData2 } = await supabase
+            .from('organizations')
+            .select('id, name')
+            .eq('subdomain', org)
+            .single();
+          
+          if (orgData2) {
+            setOrgId(orgData2.id);
+            setOrgName(orgData2.name || org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
+          } else {
+            setOrgName(org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
+          }
         }
 
         if (!prescriptionId) {
@@ -1230,6 +1313,12 @@ export default function ChatPage() {
           .single();
 
         if (!prescriptionError && prescriptionData) {
+          console.log('📦 Initial fetch - prescription data:', {
+            processing_status: prescriptionData.processing_status,
+            has_ai_answer: !!prescriptionData.ai_answer,
+            has_response_data: !!prescriptionData.response_data
+          });
+          
           setPrescription(prescriptionData);
           setProcessingStatus(prescriptionData.processing_status || 'pending');
           setProcessingProgress(prescriptionData.processing_progress || '');
@@ -1252,6 +1341,7 @@ export default function ChatPage() {
             type: 'welcome'
           });
           
+          // Check if still processing
           if (prescriptionData.processing_status === 'processing') {
             initialMessages.push({
               id: 'processing',
@@ -1262,7 +1352,9 @@ export default function ChatPage() {
             });
           }
           
+          // If completed, add user question and AI answer
           if (prescriptionData.processing_status === 'completed' || prescriptionData.status === 'analyzed') {
+            // Add user question if exists
             if (prescriptionData.user_question || prescriptionData.chief_complaint) {
               initialMessages.push({
                 id: 'user-question',
@@ -1273,11 +1365,15 @@ export default function ChatPage() {
               });
             }
             
-            if (prescriptionData.ai_answer) {
+            // CRITICAL FIX: Use extractAiAnswer helper
+            const aiAnswer = extractAiAnswer(prescriptionData);
+            console.log('📝 Initial fetch - extracted AI answer:', aiAnswer ? 'found' : 'not found');
+            
+            if (aiAnswer) {
               initialMessages.push({
                 id: 'ai-answer',
                 role: 'assistant',
-                content: prescriptionData.ai_answer,
+                content: aiAnswer,
                 timestamp: new Date(prescriptionData.created_at),
                 type: 'answer'
               });
@@ -1367,7 +1463,7 @@ export default function ChatPage() {
           }];
         });
       } else {
-        let answerText = result.output || result.text || 'I apologize, but I could not process your question. Please try again.';
+        let answerText = result.output || result.text || result.ai_answer || 'I apologize, but I could not process your question. Please try again.';
         
         const answerMatch = answerText.match(/###\s*ANSWER TO YOUR QUESTION\s*([\s\S]*?)(?=###|---\s*###|$)/i);
         if (answerMatch) {
@@ -1584,8 +1680,10 @@ export default function ChatPage() {
 
   const getAiSummary = (): string => {
     if (prescription?.ai_summary) return prescription.ai_summary;
-    if (prescription?.ai_answer) {
-      return prescription.ai_answer
+    // CRITICAL: Use extractAiAnswer for getting summary from response_data too
+    const aiAnswer = extractAiAnswer(prescription);
+    if (aiAnswer) {
+      return aiAnswer
         .replace(/[#*_~`]/g, '')
         .replace(/\n+/g, ' ')
         .trim()
