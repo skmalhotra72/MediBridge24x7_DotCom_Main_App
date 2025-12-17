@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { 
   ArrowLeft, Send, Loader2, User, Stethoscope, Calendar, 
   CheckCircle, Building2, Phone, FileText, ChevronDown, 
   ChevronUp, Pill, AlertTriangle, FlaskConical, Clock,
-  Bot, Sparkles, Moon, Sun, UserPlus
+  Bot, Sparkles, Moon, Sun, UserPlus, RefreshCw, RotateCcw
 } from 'lucide-react';
 
 // ============================================
@@ -19,7 +19,7 @@ interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
-  type?: 'welcome' | 'question' | 'answer' | 'general';
+  type?: 'welcome' | 'question' | 'answer' | 'general' | 'progress';
 }
 
 interface PrescriptionData {
@@ -53,6 +53,9 @@ interface PrescriptionData {
   total_tests: number | null;
   document_type: string | null;
   suggested_questions: string[] | string | null;
+  processing_status?: string;
+  processing_progress?: string;
+  response_data?: any;
 }
 
 interface PrescriptionItem {
@@ -94,7 +97,6 @@ const safeParseArray = (value: any): string[] => {
 // ============================================
 
 const getThemeColors = (isDark: boolean) => ({
-  // Backgrounds
   bg: isDark ? 'bg-slate-950' : 'bg-gray-50',
   bgSecondary: isDark ? 'bg-slate-900' : 'bg-white',
   bgTertiary: isDark ? 'bg-slate-900/50' : 'bg-gray-100',
@@ -103,19 +105,13 @@ const getThemeColors = (isDark: boolean) => ({
   bgInput: isDark ? 'bg-slate-800' : 'bg-white',
   bgMessage: isDark ? 'bg-slate-800/80' : 'bg-white',
   bgHighlight: isDark ? 'bg-slate-700/30' : 'bg-gray-100',
-  
-  // Text
   text: isDark ? 'text-white' : 'text-gray-900',
   textSecondary: isDark ? 'text-slate-400' : 'text-gray-600',
   textMuted: isDark ? 'text-slate-500' : 'text-gray-500',
   textLabel: isDark ? 'text-slate-500' : 'text-gray-500',
-  
-  // Borders
   border: isDark ? 'border-slate-800' : 'border-gray-200',
   borderLight: isDark ? 'border-slate-700/50' : 'border-gray-200',
   borderInput: isDark ? 'border-slate-700' : 'border-gray-300',
-  
-  // Special colors (keep consistent)
   cyan: 'text-cyan-400',
   cyanBg: isDark ? 'bg-cyan-500/10' : 'bg-cyan-50',
   cyanBorder: isDark ? 'border-cyan-500/30' : 'border-cyan-200',
@@ -125,17 +121,188 @@ const getThemeColors = (isDark: boolean) => ({
   teal: 'text-teal-400',
   blue: 'text-blue-400',
   purple: 'text-purple-400',
-  
-  // Badges
   badgeGreen: isDark ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-700',
   badgeYellow: isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-700',
   badgeOrange: isDark ? 'bg-orange-500/20 text-orange-400' : 'bg-orange-100 text-orange-700',
   badgeTeal: isDark ? 'bg-teal-500/20 text-teal-400' : 'bg-teal-100 text-teal-700',
   badgePink: isDark ? 'bg-pink-500/20 text-pink-400' : 'bg-pink-100 text-pink-700',
-  
-  // Placeholder
   placeholder: isDark ? 'placeholder-slate-500' : 'placeholder-gray-400',
 });
+
+// ============================================
+// PROCESSING STATUS COMPONENT
+// ============================================
+
+interface ProcessingStatusProps {
+  status: string;
+  progress: string;
+  isDark: boolean;
+  onRefresh: () => void;
+  isRefreshing: boolean;
+  showRefreshHint: boolean;
+  elapsedTime: number;
+}
+
+const ProcessingStatus = ({ 
+  status, 
+  progress, 
+  isDark, 
+  onRefresh, 
+  isRefreshing,
+  showRefreshHint,
+  elapsedTime 
+}: ProcessingStatusProps) => {
+  const colors = getThemeColors(isDark);
+  
+  const getStatusIcon = () => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircle className="w-5 h-5 text-green-400" />;
+      case 'error':
+        return <AlertTriangle className="w-5 h-5 text-red-400" />;
+      case 'processing':
+        return <RefreshCw className="w-5 h-5 text-cyan-400 animate-spin" />;
+      default:
+        return <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />;
+    }
+  };
+
+  const getStatusColor = () => {
+    switch (status) {
+      case 'completed':
+        return isDark 
+          ? 'from-green-500/20 to-emerald-500/20 border-green-500/30' 
+          : 'from-green-50 to-emerald-50 border-green-200';
+      case 'error':
+        return isDark 
+          ? 'from-red-500/20 to-rose-500/20 border-red-500/30'
+          : 'from-red-50 to-rose-50 border-red-200';
+      case 'processing':
+        return isDark 
+          ? 'from-cyan-500/20 to-blue-500/20 border-cyan-500/30'
+          : 'from-cyan-50 to-blue-50 border-cyan-200';
+      default:
+        return isDark 
+          ? 'from-slate-500/20 to-slate-600/20 border-slate-500/30'
+          : 'from-gray-50 to-gray-100 border-gray-200';
+    }
+  };
+
+  const getProgressSteps = () => {
+    const steps = [
+      { key: 'receiving', label: 'Receiving document', match: ['receiving', 'pending'] },
+      { key: 'reading', label: 'Reading document', match: ['reading'] },
+      { key: 'analyzing', label: 'Analyzing content', match: ['analyzing prescription', 'analyzing'] },
+      { key: 'extracting', label: 'Extracting details', match: ['extracting'] },
+      { key: 'generating', label: 'Generating analysis', match: ['generating'] },
+      { key: 'complete', label: 'Analysis complete', match: ['complete', 'completed'] }
+    ];
+
+    const progressLower = progress?.toLowerCase() || '';
+    let currentStepIndex = 0;
+
+    steps.forEach((step, index) => {
+      if (step.match.some(m => progressLower.includes(m))) {
+        currentStepIndex = index;
+      }
+    });
+
+    return { steps, currentStepIndex };
+  };
+
+  // Don't show when complete
+  if (status === 'completed') {
+    return null;
+  }
+
+  const { steps, currentStepIndex } = getProgressSteps();
+  const formatTime = (seconds: number) => {
+    if (seconds < 60) return `${seconds}s`;
+    return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  };
+
+  return (
+    <div className={`bg-gradient-to-r ${getStatusColor()} rounded-xl border p-4 mb-4`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-3">
+          {getStatusIcon()}
+          <div>
+            <p className={`${colors.text} font-medium text-sm`}>
+              {status === 'error' ? 'Processing Error' : 'Analyzing Your Prescription'}
+            </p>
+            <p className={`${colors.textSecondary} text-xs`}>
+              {progress || 'Starting...'} 
+              {status === 'processing' && elapsedTime > 0 && (
+                <span className="ml-2 text-cyan-400">({formatTime(elapsedTime)})</span>
+              )}
+            </p>
+          </div>
+        </div>
+        
+        {/* Refresh Button */}
+        <button
+          onClick={onRefresh}
+          disabled={isRefreshing}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            showRefreshHint
+              ? 'bg-cyan-500 text-white animate-pulse hover:bg-cyan-600'
+              : isDark 
+                ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' 
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          } disabled:opacity-50`}
+        >
+          <RotateCcw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+          {isRefreshing ? 'Checking...' : 'Refresh Status'}
+        </button>
+      </div>
+
+      {status === 'processing' && (
+        <div className="space-y-2">
+          {steps.map((step, index) => (
+            <div key={step.key} className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                index < currentStepIndex 
+                  ? 'bg-green-400' 
+                  : index === currentStepIndex 
+                    ? 'bg-cyan-400 animate-pulse' 
+                    : isDark ? 'bg-slate-600' : 'bg-gray-300'
+              }`} />
+              <span className={`text-xs transition-all duration-300 ${
+                index < currentStepIndex 
+                  ? 'text-green-400' 
+                  : index === currentStepIndex 
+                    ? 'text-cyan-400 font-medium' 
+                    : colors.textMuted
+              }`}>
+                {step.label}
+              </span>
+              {index === currentStepIndex && (
+                <Loader2 className="w-3 h-3 text-cyan-400 animate-spin ml-1" />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Show refresh hint after timeout */}
+      {showRefreshHint && status === 'processing' && (
+        <div className={`mt-3 pt-3 border-t ${isDark ? 'border-slate-600/50' : 'border-gray-300'}`}>
+          <p className={`text-xs ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+            ⏱️ Taking longer than expected? Click "Refresh Status" to check for updates.
+          </p>
+        </div>
+      )}
+
+      {status === 'error' && (
+        <div className="mt-2">
+          <p className={`${isDark ? 'text-red-300' : 'text-red-600'} text-xs`}>
+            There was an issue processing your prescription. Please try uploading again or click Refresh to retry.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ============================================
 // COLLAPSIBLE CARD COMPONENT
@@ -396,7 +563,7 @@ const PrescriptionDetails = ({
 
   return (
     <div className="space-y-3">
-      {/* 1. Prescription Analysis (Collapsible - Collapsed by default) */}
+      {/* 1. Prescription Analysis */}
       <CollapsibleCard
         title="Prescription Analysis"
         icon={<CheckCircle className="w-4 h-4" />}
@@ -452,7 +619,7 @@ const PrescriptionDetails = ({
         </div>
       </CollapsibleCard>
 
-      {/* 2. AI Analysis Complete (ALWAYS OPEN) */}
+      {/* 2. AI Analysis Complete */}
       <StaticCard
         title="AI Analysis Complete"
         icon={<Sparkles className="w-4 h-4" />}
@@ -477,7 +644,7 @@ const PrescriptionDetails = ({
         </div>
       </StaticCard>
 
-      {/* 3. Precautions (ALWAYS OPEN) */}
+      {/* 3. Precautions */}
       <StaticCard
         title="Precautions"
         icon={<AlertTriangle className="w-4 h-4" />}
@@ -500,7 +667,7 @@ const PrescriptionDetails = ({
         )}
       </StaticCard>
 
-      {/* 4. Diagnostic Tests (Collapsible) */}
+      {/* 4. Diagnostic Tests */}
       <CollapsibleCard
         title="Diagnostic Tests"
         icon={<FlaskConical className="w-4 h-4" />}
@@ -530,7 +697,7 @@ const PrescriptionDetails = ({
         )}
       </CollapsibleCard>
 
-      {/* 5. Prescribed Medicines (Collapsible) */}
+      {/* 5. Prescribed Medicines */}
       <CollapsibleCard
         title="Prescribed Medicines"
         icon={<Pill className="w-4 h-4" />}
@@ -584,7 +751,7 @@ const PrescriptionDetails = ({
         )}
       </CollapsibleCard>
 
-      {/* 6. Follow Up (Collapsible) */}
+      {/* 6. Follow Up */}
       <CollapsibleCard
         title="Follow Up"
         icon={<Clock className="w-4 h-4" />}
@@ -613,7 +780,7 @@ const PrescriptionDetails = ({
         </div>
       </CollapsibleCard>
 
-      {/* 7. Doctor Information (Collapsible) */}
+      {/* 7. Doctor Information */}
       <CollapsibleCard
         title="Doctor Information"
         icon={<Stethoscope className="w-4 h-4" />}
@@ -645,7 +812,7 @@ const PrescriptionDetails = ({
         </div>
       </CollapsibleCard>
 
-      {/* 8. Clinic Information (Collapsible) */}
+      {/* 8. Clinic Information */}
       <CollapsibleCard
         title="Clinic Information"
         icon={<Building2 className="w-4 h-4" />}
@@ -695,10 +862,10 @@ export default function ChatPage() {
   const prescriptionId = searchParams.get('prescription_id');
   const sessionId = searchParams.get('session');
 
-  // Theme state - default to dark
+  // Theme state
   const [isDark, setIsDark] = useState(true);
 
-  // State
+  // Core state
   const [prescription, setPrescription] = useState<PrescriptionData | null>(null);
   const [prescriptionItems, setPrescriptionItems] = useState<PrescriptionItem[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -713,6 +880,16 @@ export default function ChatPage() {
   const [escalated, setEscalated] = useState(false);
   const [orgId, setOrgId] = useState<string | null>(null);
   
+  // Processing state for Realtime
+  const [processingStatus, setProcessingStatus] = useState<string>('pending');
+  const [processingProgress, setProcessingProgress] = useState<string>('');
+  
+  // NEW: Refresh fallback state
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showRefreshHint, setShowRefreshHint] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [processingStartTime, setProcessingStartTime] = useState<number | null>(null);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
 
@@ -725,7 +902,7 @@ export default function ChatPage() {
     'Any drug interactions?'
   ];
 
-  // Load theme from localStorage on mount
+  // Load theme from localStorage
   useEffect(() => {
     const savedTheme = localStorage.getItem('medibridge-theme');
     if (savedTheme) {
@@ -733,7 +910,7 @@ export default function ChatPage() {
     }
   }, []);
 
-  // Toggle theme and save to localStorage
+  // Toggle theme
   const toggleTheme = () => {
     const newTheme = !isDark;
     setIsDark(newTheme);
@@ -748,31 +925,284 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  // Fetch data
+  // ============================================
+  // FETCH PRESCRIPTION ITEMS HELPER
+  // ============================================
+  const fetchPrescriptionItems = useCallback(async () => {
+    if (!prescriptionId) return;
+    
+    const { data, error } = await supabase
+      .from('prescription_items')
+      .select('*')
+      .eq('prescription_id', prescriptionId)
+      .order('sequence_number', { ascending: true });
+    
+    if (!error && data) {
+      setPrescriptionItems(data);
+    }
+  }, [prescriptionId, supabase]);
+
+  // ============================================
+  // MANUAL REFRESH FUNCTION
+  // ============================================
+  const refreshPrescriptionStatus = useCallback(async () => {
+    if (!prescriptionId || isRefreshing) return;
+    
+    setIsRefreshing(true);
+    console.log('🔄 Manually refreshing prescription status...');
+    
+    try {
+      const { data, error } = await supabase
+        .from('prescriptions')
+        .select(`
+          id, file_url, status, created_at, chief_complaint,
+          patient_name, patient_age, patient_gender,
+          doctor_name, doctor_qualifications, doctor_registration,
+          clinic_name, clinic_address, clinic_contact,
+          prescription_date_extracted, diagnosis,
+          user_question, ai_answer, ai_analysis, ai_summary,
+          precautions, follow_up_instructions,
+          total_medicines, total_tests, document_type,
+          suggested_questions,
+          processing_status, processing_progress, response_data
+        `)
+        .eq('id', prescriptionId)
+        .single();
+      
+      if (!error && data) {
+        console.log('✅ Refresh complete:', data.processing_status, data.processing_progress);
+        
+        setPrescription(data);
+        setProcessingStatus(data.processing_status || 'pending');
+        setProcessingProgress(data.processing_progress || '');
+        
+        // Update suggested questions
+        const dbQuestions = safeParseArray(data.suggested_questions);
+        if (dbQuestions.length > 0) {
+          setSuggestedQuestions(dbQuestions);
+        }
+        
+        // If completed, fetch items and update messages
+        if (data.processing_status === 'completed') {
+          setShowRefreshHint(false);
+          setProcessingStartTime(null);
+          await fetchPrescriptionItems();
+          
+          // Add AI response if not already present
+          if (data.ai_answer) {
+            setMessages(prev => {
+              const hasAnswer = prev.some(m => m.type === 'answer' && m.content === data.ai_answer);
+              if (!hasAnswer) {
+                const filtered = prev.filter(m => m.id !== 'processing' && m.id !== 'loading');
+                return [...filtered, {
+                  id: `ai-answer-${Date.now()}`,
+                  role: 'assistant' as const,
+                  content: data.ai_answer!,
+                  timestamp: new Date(),
+                  type: 'answer' as const
+                }];
+              }
+              return prev;
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error refreshing:', err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [prescriptionId, isRefreshing, supabase, fetchPrescriptionItems]);
+
+  // ============================================
+  // ELAPSED TIME TRACKER
+  // ============================================
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+    
+    if (processingStatus === 'processing') {
+      if (!processingStartTime) {
+        setProcessingStartTime(Date.now());
+      }
+      
+      intervalId = setInterval(() => {
+        if (processingStartTime) {
+          const elapsed = Math.floor((Date.now() - processingStartTime) / 1000);
+          setElapsedTime(elapsed);
+        }
+      }, 1000);
+    } else {
+      setElapsedTime(0);
+      setProcessingStartTime(null);
+    }
+    
+    return () => clearInterval(intervalId);
+  }, [processingStatus, processingStartTime]);
+
+  // ============================================
+  // SHOW REFRESH HINT AFTER 30 SECONDS
+  // ============================================
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    
+    if (processingStatus === 'processing') {
+      timeoutId = setTimeout(() => {
+        setShowRefreshHint(true);
+      }, 30000); // Show hint after 30 seconds
+    } else {
+      setShowRefreshHint(false);
+    }
+    
+    return () => clearTimeout(timeoutId);
+  }, [processingStatus]);
+
+  // ============================================
+  // AUTO-POLL FALLBACK (every 15 seconds while processing)
+  // ============================================
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+    
+    if (processingStatus === 'processing' && prescriptionId) {
+      intervalId = setInterval(() => {
+        console.log('⏰ Auto-polling for updates...');
+        refreshPrescriptionStatus();
+      }, 15000); // Poll every 15 seconds
+    }
+    
+    return () => clearInterval(intervalId);
+  }, [processingStatus, prescriptionId, refreshPrescriptionStatus]);
+
+  // ============================================
+  // SUPABASE REALTIME SUBSCRIPTION
+  // ============================================
+  useEffect(() => {
+    if (!prescriptionId) return;
+
+    console.log('🔌 Setting up Realtime subscription for prescription:', prescriptionId);
+
+    const channel = supabase
+      .channel(`prescription-${prescriptionId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'prescriptions',
+          filter: `id=eq.${prescriptionId}`
+        },
+        (payload) => {
+          console.log('📡 Realtime update received:', payload);
+          
+          const newData = payload.new as any;
+          
+          if (newData.processing_status) {
+            setProcessingStatus(newData.processing_status);
+            console.log('📊 Processing status:', newData.processing_status);
+          }
+          
+          if (newData.processing_progress) {
+            setProcessingProgress(newData.processing_progress);
+            console.log('📈 Processing progress:', newData.processing_progress);
+          }
+          
+          if (newData.processing_status === 'completed') {
+            console.log('✅ Processing complete via Realtime!');
+            setShowRefreshHint(false);
+            setProcessingStartTime(null);
+            
+            let responseData = newData.response_data;
+            if (typeof responseData === 'string') {
+              try {
+                responseData = JSON.parse(responseData);
+              } catch (e) {
+                console.error('Error parsing response_data:', e);
+              }
+            }
+            
+            setPrescription(prev => ({
+              ...prev!,
+              ...newData,
+              ai_answer: responseData?.output || newData.ai_answer,
+              ai_summary: responseData?.ai_summary || newData.ai_summary,
+              patient_name: responseData?.patient_info?.name || newData.patient_name,
+              doctor_name: responseData?.doctor_info?.name || newData.doctor_name,
+              status: 'analyzed'
+            }));
+            
+            if (responseData?.suggested_questions) {
+              setSuggestedQuestions(safeParseArray(responseData.suggested_questions));
+            }
+            
+            if (responseData?.output) {
+              setMessages(prev => {
+                const filtered = prev.filter(m => m.id !== 'processing' && m.id !== 'loading');
+                return [...filtered, {
+                  id: `ai-response-${Date.now()}`,
+                  role: 'assistant' as const,
+                  content: responseData.output,
+                  timestamp: new Date(),
+                  type: 'answer' as const
+                }];
+              });
+            }
+            
+            fetchPrescriptionItems();
+          }
+          
+          if (newData.processing_status === 'error') {
+            console.log('❌ Processing error via Realtime');
+            setShowRefreshHint(false);
+            
+            let errorMessage = 'There was an error processing your prescription.';
+            if (newData.response_data) {
+              try {
+                const errorData = typeof newData.response_data === 'string' 
+                  ? JSON.parse(newData.response_data) 
+                  : newData.response_data;
+                errorMessage = errorData.message || errorData.output || errorMessage;
+              } catch (e) {}
+            }
+            
+            setMessages(prev => {
+              const filtered = prev.filter(m => m.id !== 'processing' && m.id !== 'loading');
+              return [...filtered, {
+                id: `error-${Date.now()}`,
+                role: 'assistant' as const,
+                content: errorMessage,
+                timestamp: new Date(),
+                type: 'general' as const
+              }];
+            });
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 Realtime subscription status:', status);
+      });
+
+    return () => {
+      console.log('🔌 Cleaning up Realtime subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [prescriptionId, supabase, fetchPrescriptionItems]);
+
+  // ============================================
+  // INITIAL DATA FETCH
+  // ============================================
   useEffect(() => {
     async function fetchData() {
       try {
-        // Fetch organization info by subdomain (matches URL param)
+        // Fetch organization
         const { data: orgData, error: orgError } = await supabase
           .from('organizations')
           .select('id, name')
           .eq('subdomain', org)
           .single();
         
-        if (orgError) {
-          console.error('Error fetching organization:', orgError);
-        }
-        
-        if (orgData) {
+        if (!orgError && orgData) {
           setOrgId(orgData.id);
-          if (orgData.name) {
-            setOrgName(orgData.name);
-          } else {
-            // Fallback: capitalize the subdomain
-            setOrgName(org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
-          }
+          setOrgName(orgData.name || org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
         } else {
-          // Fallback: capitalize the subdomain
           setOrgName(org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
         }
 
@@ -781,6 +1211,7 @@ export default function ChatPage() {
           return;
         }
 
+        // Fetch prescription with processing fields
         const { data: prescriptionData, error: prescriptionError } = await supabase
           .from('prescriptions')
           .select(`
@@ -792,17 +1223,23 @@ export default function ChatPage() {
             user_question, ai_answer, ai_analysis, ai_summary,
             precautions, follow_up_instructions,
             total_medicines, total_tests, document_type,
-            suggested_questions
+            suggested_questions,
+            processing_status, processing_progress, response_data
           `)
           .eq('id', prescriptionId)
           .single();
 
-        if (prescriptionError) {
-          console.error('Error fetching prescription:', prescriptionError);
-        } else {
+        if (!prescriptionError && prescriptionData) {
           setPrescription(prescriptionData);
+          setProcessingStatus(prescriptionData.processing_status || 'pending');
+          setProcessingProgress(prescriptionData.processing_progress || '');
           
-          const dbQuestions = safeParseArray(prescriptionData?.suggested_questions);
+          // Start timer if still processing
+          if (prescriptionData.processing_status === 'processing') {
+            setProcessingStartTime(Date.now());
+          }
+          
+          const dbQuestions = safeParseArray(prescriptionData.suggested_questions);
           setSuggestedQuestions(dbQuestions.length > 0 ? dbQuestions : defaultQuickQuestions);
           
           const initialMessages: Message[] = [];
@@ -815,38 +1252,42 @@ export default function ChatPage() {
             type: 'welcome'
           });
           
-          if (prescriptionData.user_question || prescriptionData.chief_complaint) {
+          if (prescriptionData.processing_status === 'processing') {
             initialMessages.push({
-              id: 'user-question',
-              role: 'user',
-              content: prescriptionData.user_question || prescriptionData.chief_complaint || '',
-              timestamp: new Date(prescriptionData.created_at),
-              type: 'question'
+              id: 'processing',
+              role: 'assistant',
+              content: '⏳ Analyzing your prescription... Please wait.',
+              timestamp: new Date(),
+              type: 'progress'
             });
           }
           
-          if (prescriptionData.ai_answer) {
-            initialMessages.push({
-              id: 'ai-answer',
-              role: 'assistant',
-              content: prescriptionData.ai_answer,
-              timestamp: new Date(prescriptionData.created_at),
-              type: 'answer'
-            });
+          if (prescriptionData.processing_status === 'completed' || prescriptionData.status === 'analyzed') {
+            if (prescriptionData.user_question || prescriptionData.chief_complaint) {
+              initialMessages.push({
+                id: 'user-question',
+                role: 'user',
+                content: prescriptionData.user_question || prescriptionData.chief_complaint || '',
+                timestamp: new Date(prescriptionData.created_at),
+                type: 'question'
+              });
+            }
+            
+            if (prescriptionData.ai_answer) {
+              initialMessages.push({
+                id: 'ai-answer',
+                role: 'assistant',
+                content: prescriptionData.ai_answer,
+                timestamp: new Date(prescriptionData.created_at),
+                type: 'answer'
+              });
+            }
           }
           
           setMessages(initialMessages);
         }
 
-        const { data: itemsData, error: itemsError } = await supabase
-          .from('prescription_items')
-          .select('*')
-          .eq('prescription_id', prescriptionId)
-          .order('sequence_number', { ascending: true });
-
-        if (!itemsError && itemsData) {
-          setPrescriptionItems(itemsData);
-        }
+        await fetchPrescriptionItems();
 
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -856,9 +1297,11 @@ export default function ChatPage() {
     }
 
     fetchData();
-  }, [org, prescriptionId, sessionId, supabase]);
+  }, [org, prescriptionId, sessionId, supabase, fetchPrescriptionItems]);
 
-  // Send message
+  // ============================================
+  // SEND MESSAGE
+  // ============================================
   const handleSendMessage = async (message?: string) => {
     const messageToSend = message || inputValue.trim();
     if (!messageToSend || sending) return;
@@ -909,30 +1352,46 @@ export default function ChatPage() {
 
       const result = await response.json();
       
-      let answerText = result.output || result.text || 'I apologize, but I could not process your question. Please try again.';
-      
-      const answerMatch = answerText.match(/###\s*ANSWER TO YOUR QUESTION\s*([\s\S]*?)(?=###|---\s*###|$)/i);
-      if (answerMatch) {
-        answerText = answerMatch[1].trim();
-      }
-      
-      if (result.suggested_questions) {
-        const newQuestions = safeParseArray(result.suggested_questions);
-        if (newQuestions.length > 0) {
-          setSuggestedQuestions(newQuestions);
+      if (response.status === 202 || result.status === 'processing') {
+        console.log('📤 Processing started, waiting for updates...');
+        setProcessingStatus('processing');
+        setProcessingStartTime(Date.now());
+        setMessages(prev => {
+          const filtered = prev.filter(m => m.id !== 'loading');
+          return [...filtered, {
+            id: 'processing',
+            role: 'assistant' as const,
+            content: '⏳ Analyzing your request... Please wait.',
+            timestamp: new Date(),
+            type: 'progress' as const
+          }];
+        });
+      } else {
+        let answerText = result.output || result.text || 'I apologize, but I could not process your question. Please try again.';
+        
+        const answerMatch = answerText.match(/###\s*ANSWER TO YOUR QUESTION\s*([\s\S]*?)(?=###|---\s*###|$)/i);
+        if (answerMatch) {
+          answerText = answerMatch[1].trim();
         }
+        
+        if (result.suggested_questions) {
+          const newQuestions = safeParseArray(result.suggested_questions);
+          if (newQuestions.length > 0) {
+            setSuggestedQuestions(newQuestions);
+          }
+        }
+        
+        setMessages(prev => {
+          const filtered = prev.filter(m => m.id !== 'loading');
+          return [...filtered, {
+            id: `assistant-${Date.now()}`,
+            role: 'assistant' as const,
+            content: answerText,
+            timestamp: new Date(),
+            type: 'answer' as const
+          }];
+        });
       }
-      
-      setMessages(prev => {
-        const filtered = prev.filter(m => m.id !== 'loading');
-        return [...filtered, {
-          id: `assistant-${Date.now()}`,
-          role: 'assistant',
-          content: answerText,
-          timestamp: new Date(),
-          type: 'answer'
-        }];
-      });
 
     } catch (error) {
       console.error('Error sending message:', error);
@@ -940,10 +1399,10 @@ export default function ChatPage() {
         const filtered = prev.filter(m => m.id !== 'loading');
         return [...filtered, {
           id: `error-${Date.now()}`,
-          role: 'assistant',
+          role: 'assistant' as const,
           content: 'Sorry, I encountered an error. Please try again.',
           timestamp: new Date(),
-          type: 'general'
+          type: 'general' as const
         }];
       });
     } finally {
@@ -951,7 +1410,9 @@ export default function ChatPage() {
     }
   };
 
-  // Connect to Doctor - Create Escalation (FIXED - uses auth_user_id and user.id)
+  // ============================================
+  // CONNECT TO DOCTOR
+  // ============================================
   const handleConnectToDoctor = async () => {
     if (escalating || escalated) return;
     
@@ -960,10 +1421,8 @@ export default function ChatPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       
-      // Get or create patient - patient_id is REQUIRED for chat_sessions
       let patientId = null;
       
-      // FIXED: Try to find existing patient by auth_user_id using user.id
       if (user?.id) {
         const { data: patientData } = await supabase
           .from('patients')
@@ -976,7 +1435,6 @@ export default function ChatPage() {
         }
       }
       
-      // If no patient found by auth_user_id, try to find by prescription patient name
       if (!patientId && prescription?.patient_name && orgId) {
         const { data: prescPatient } = await supabase
           .from('patients')
@@ -990,7 +1448,6 @@ export default function ChatPage() {
         }
       }
       
-      // FIXED: If still no patient, create a minimal patient record with auth_user_id
       if (!patientId && orgId) {
         const { data: newPatient, error: patientError } = await supabase
           .from('patients')
@@ -1005,21 +1462,16 @@ export default function ChatPage() {
         
         if (!patientError && newPatient) {
           patientId = newPatient.id;
-        } else {
-          console.error('Error creating patient:', patientError);
         }
       }
       
-      // If we still don't have a patient ID, we can't proceed
       if (!patientId) {
         throw new Error('Could not find or create patient record');
       }
       
-      // ALWAYS create a new chat session (ignore URL session param - it might not exist in DB)
       let chatSessionId = null;
       
       if (orgId && patientId) {
-        // First check if session from URL exists
         if (sessionId) {
           const { data: existingSession } = await supabase
             .from('chat_sessions')
@@ -1028,7 +1480,6 @@ export default function ChatPage() {
             .maybeSingle();
           
           if (existingSession) {
-            // Session exists, update it
             chatSessionId = sessionId;
             await supabase
               .from('chat_sessions')
@@ -1037,7 +1488,6 @@ export default function ChatPage() {
           }
         }
         
-        // If no valid session, create new one
         if (!chatSessionId) {
           const { data: newSession, error: sessionError } = await supabase
             .from('chat_sessions')
@@ -1052,39 +1502,27 @@ export default function ChatPage() {
             .select('id')
             .single();
           
-          if (sessionError) {
-            console.error('Error creating chat session:', sessionError);
-            throw sessionError;
-          } else {
-            chatSessionId = newSession?.id;
+          if (!sessionError && newSession) {
+            chatSessionId = newSession.id;
           }
         }
       }
       
-      // Create escalation record
       if (orgId && chatSessionId && patientId) {
-        const escalationData = {
-          organization_id: orgId,
-          patient_id: patientId,
-          chat_session_id: chatSessionId,
-          escalation_type: 'doctor_request',
-          severity: 'medium',
-          status: 'pending',
-          escalation_summary: `Patient ${prescription?.patient_name || 'Unknown'} requested to connect with a doctor regarding their prescription.`,
-          ai_recommendation: 'Patient has requested direct doctor consultation. Please review the chat history and prescription details.',
-        };
-        
-        const { error: escalationError } = await supabase
+        await supabase
           .from('escalations')
-          .insert(escalationData);
-        
-        if (escalationError) {
-          console.error('Error creating escalation:', escalationError);
-          throw escalationError;
-        }
+          .insert({
+            organization_id: orgId,
+            patient_id: patientId,
+            chat_session_id: chatSessionId,
+            escalation_type: 'doctor_request',
+            severity: 'medium',
+            status: 'pending',
+            escalation_summary: `Patient ${prescription?.patient_name || 'Unknown'} requested to connect with a doctor regarding their prescription.`,
+            ai_recommendation: 'Patient has requested direct doctor consultation. Please review the chat history and prescription details.',
+          });
       }
       
-      // Add confirmation message to chat
       const confirmMessage: Message = {
         id: `system-${Date.now()}`,
         role: 'assistant',
@@ -1099,7 +1537,6 @@ export default function ChatPage() {
     } catch (error) {
       console.error('Error connecting to doctor:', error);
       
-      // Show error message
       const errorMessage: Message = {
         id: `error-${Date.now()}`,
         role: 'assistant',
@@ -1114,7 +1551,9 @@ export default function ChatPage() {
     }
   };
 
-  // Data helpers
+  // ============================================
+  // DATA HELPERS
+  // ============================================
   const medicines = prescriptionItems.filter(item => item.item_type === 'medicine');
   const tests = prescriptionItems.filter(item => item.item_type === 'test');
 
@@ -1172,7 +1611,11 @@ export default function ChatPage() {
     }
   };
 
-  // Loading
+  const isProcessingComplete = processingStatus === 'completed' || prescription?.status === 'analyzed';
+
+  // ============================================
+  // LOADING STATE
+  // ============================================
   if (loading) {
     return (
       <div className={`fixed inset-0 ${colors.bg} flex items-center justify-center z-[9999]`}>
@@ -1184,23 +1627,19 @@ export default function ChatPage() {
     );
   }
 
+  // ============================================
+  // MAIN RENDER
+  // ============================================
   return (
     <div className={`fixed inset-0 ${colors.bg} flex flex-col z-[9999] transition-colors duration-300`}>
       
-      {/* ============================================ */}
-      {/* FIXED TOP HEADER - Full Width */}
-      {/* ============================================ */}
+      {/* HEADER */}
       <header className={`${colors.bgSecondary} border-b ${colors.border} flex-shrink-0`}>
         <div className="px-4 py-3 flex items-center justify-between relative">
-          {/* Left: MediBridge */}
           <h1 className={`text-lg font-bold ${colors.text}`}>MediBridge</h1>
-          
-          {/* Center: Organization Name */}
           <h2 className="text-lg font-bold text-cyan-500 absolute left-1/2 transform -translate-x-1/2">
             {orgName || 'Loading...'}
           </h2>
-          
-          {/* Right: Theme Toggle + Back Button */}
           <div className="flex items-center gap-3">
             <button
               onClick={toggleTheme}
@@ -1224,14 +1663,11 @@ export default function ChatPage() {
         </div>
       </header>
 
-      {/* ============================================ */}
       {/* DESKTOP LAYOUT */}
-      {/* ============================================ */}
       <div className="hidden lg:flex flex-1 overflow-hidden">
         
-        {/* LEFT PANEL - SCROLLABLE MIDDLE */}
+        {/* LEFT PANEL */}
         <div className={`w-[40%] flex flex-col ${colors.bgTertiary}`}>
-          {/* Left Panel Header */}
           <div className={`p-4 border-b ${colors.border} flex-shrink-0`}>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center">
@@ -1244,21 +1680,47 @@ export default function ChatPage() {
             </div>
           </div>
           
-          {/* Left Panel Scrollable Content */}
           <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
-            <PrescriptionDetails
-              prescription={prescription}
-              medicines={medicines}
-              tests={tests}
-              precautions={precautions}
-              followUp={followUp}
-              formatDate={formatDate}
-              getAiSummary={getAiSummary}
-              isDark={isDark}
-            />
+            {!isProcessingComplete ? (
+              <div className={`${colors.bgCard} rounded-xl border ${colors.borderLight} p-6 text-center`}>
+                <RefreshCw className="w-10 h-10 text-cyan-400 animate-spin mx-auto mb-4" />
+                <p className={`${colors.text} text-sm font-medium`}>Analyzing prescription...</p>
+                <p className={`${colors.textSecondary} text-xs mt-2`}>{processingProgress || 'Please wait'}</p>
+                
+                {elapsedTime > 0 && (
+                  <p className={`${colors.textMuted} text-xs mt-2`}>
+                    Time elapsed: {elapsedTime}s
+                  </p>
+                )}
+                
+                <button
+                  onClick={refreshPrescriptionStatus}
+                  disabled={isRefreshing}
+                  className={`mt-4 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    showRefreshHint
+                      ? 'bg-cyan-500 text-white animate-pulse'
+                      : isDark 
+                        ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' 
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  } disabled:opacity-50`}
+                >
+                  {isRefreshing ? 'Checking...' : 'Check Status'}
+                </button>
+              </div>
+            ) : (
+              <PrescriptionDetails
+                prescription={prescription}
+                medicines={medicines}
+                tests={tests}
+                precautions={precautions}
+                followUp={followUp}
+                formatDate={formatDate}
+                getAiSummary={getAiSummary}
+                isDark={isDark}
+              />
+            )}
           </div>
           
-          {/* Left Panel Fixed Footer */}
           <div className={`border-t ${colors.border} p-3 flex-shrink-0 ${isDark ? 'bg-slate-900/80' : 'bg-white'}`}>
             <p className="text-green-500 text-sm font-medium text-center">सर्वे सन्तु निरामया:</p>
             <p className="text-orange-500 text-xs text-center mt-0.5">"May all be free from illness"</p>
@@ -1268,7 +1730,7 @@ export default function ChatPage() {
         {/* RIGHT PANEL - CHAT */}
         <div className={`w-[60%] flex flex-col ${colors.bg}`}>
           
-          {/* Right Panel Header */}
+          {/* Chat Header */}
           <div className={`p-4 border-b ${colors.border} flex-shrink-0`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1285,7 +1747,6 @@ export default function ChatPage() {
               </div>
               
               <div className="flex items-center gap-3">
-                {/* Connect to Doctor Button - Desktop */}
                 <button
                   onClick={handleConnectToDoctor}
                   disabled={escalating || escalated}
@@ -1334,9 +1795,23 @@ export default function ChatPage() {
             </div>
           </div>
 
-          {/* Right Panel Scrollable Messages */}
+          {/* Chat Messages */}
           <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
             <div className="max-w-3xl mx-auto space-y-4">
+              
+              {/* Processing Status Banner */}
+              {!isProcessingComplete && (
+                <ProcessingStatus 
+                  status={processingStatus} 
+                  progress={processingProgress}
+                  isDark={isDark}
+                  onRefresh={refreshPrescriptionStatus}
+                  isRefreshing={isRefreshing}
+                  showRefreshHint={showRefreshHint}
+                  elapsedTime={elapsedTime}
+                />
+              )}
+              
               {messages.map((message) => (
                 <div
                   key={message.id}
@@ -1365,7 +1840,12 @@ export default function ChatPage() {
                     )}
                     
                     <div className="text-sm leading-relaxed">
-                      {message.content === '...' ? (
+                      {message.type === 'progress' ? (
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
+                          <span className={colors.textSecondary}>{message.content}</span>
+                        </div>
+                      ) : message.content === '...' ? (
                         <div className="flex items-center gap-2 py-1">
                           <div className="flex gap-1">
                             <span className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
@@ -1403,9 +1883,8 @@ export default function ChatPage() {
             </div>
           </div>
 
-          {/* Right Panel Fixed Footer - Input + Quick Questions */}
+          {/* Input Area */}
           <div className={`border-t ${colors.border} flex-shrink-0 ${colors.bg}`}>
-            {/* Input Area */}
             <div className="p-4 pb-2">
               <div className="max-w-3xl mx-auto">
                 <div className="flex gap-3 items-end">
@@ -1424,7 +1903,7 @@ export default function ChatPage() {
                         }
                       }}
                       placeholder="Ask anything about your prescription..."
-                      disabled={sending}
+                      disabled={sending || processingStatus === 'processing'}
                       className={`w-full px-4 py-3 ${colors.bgInput} border ${colors.borderInput} rounded-2xl ${colors.text} ${colors.placeholder} focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 disabled:opacity-50 transition-all resize-none text-sm`}
                       rows={1}
                       style={{ minHeight: '48px', maxHeight: '120px' }}
@@ -1432,7 +1911,7 @@ export default function ChatPage() {
                   </div>
                   <button
                     onClick={() => handleSendMessage()}
-                    disabled={sending || !inputValue.trim()}
+                    disabled={sending || !inputValue.trim() || processingStatus === 'processing'}
                     className="p-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/40 hover:scale-105 flex-shrink-0"
                   >
                     {sending ? (
@@ -1445,14 +1924,13 @@ export default function ChatPage() {
               </div>
             </div>
 
-            {/* Quick Questions - Below Input, Smaller & Brighter */}
             <div className="px-4 pb-2">
               <div className="max-w-3xl mx-auto flex gap-1.5 overflow-x-auto scrollbar-hide">
                 {suggestedQuestions.slice(0, 4).map((question, index) => (
                   <button
                     key={index}
                     onClick={() => handleSendMessage(question)}
-                    disabled={sending}
+                    disabled={sending || processingStatus === 'processing'}
                     className={`flex-shrink-0 px-2.5 py-1 ${colors.cyanBg} hover:bg-cyan-500/20 text-cyan-500 hover:text-cyan-400 text-[11px] rounded-full border ${colors.cyanBorder} hover:border-cyan-400/50 transition-all duration-200 disabled:opacity-50 whitespace-nowrap`}
                   >
                     {question.length > 35 ? question.substring(0, 35) + '...' : question}
@@ -1461,7 +1939,6 @@ export default function ChatPage() {
               </div>
             </div>
 
-            {/* Footer hint */}
             <div className="pb-3">
               <p className={`text-center ${colors.textMuted} text-xs`}>
                 Press Enter to send • Shift+Enter for new line
@@ -1471,13 +1948,11 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* ============================================ */}
-      {/* MOBILE LAYOUT - Single Scroll */}
-      {/* ============================================ */}
+      {/* MOBILE LAYOUT */}
       <div className="lg:hidden flex-1 overflow-y-auto">
         <div className="p-4 space-y-4">
           
-          {/* Chat Header - Mobile */}
+          {/* Mobile Chat Header */}
           <div className={`${colors.bgCard} rounded-xl p-3 border ${colors.borderLight}`}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
@@ -1504,7 +1979,6 @@ export default function ChatPage() {
               )}
             </div>
             
-            {/* Connect to Doctor Button - Mobile */}
             <button
               onClick={handleConnectToDoctor}
               disabled={escalating || escalated}
@@ -1535,7 +2009,20 @@ export default function ChatPage() {
             </button>
           </div>
 
-          {/* Chat Messages - Mobile */}
+          {/* Mobile Processing Status */}
+          {!isProcessingComplete && (
+            <ProcessingStatus 
+              status={processingStatus} 
+              progress={processingProgress}
+              isDark={isDark}
+              onRefresh={refreshPrescriptionStatus}
+              isRefreshing={isRefreshing}
+              showRefreshHint={showRefreshHint}
+              elapsedTime={elapsedTime}
+            />
+          )}
+
+          {/* Mobile Messages */}
           <div className="space-y-3">
             {messages.map((message) => (
               <div
@@ -1565,7 +2052,12 @@ export default function ChatPage() {
                   )}
                   
                   <div className="text-sm leading-relaxed">
-                    {message.content === '...' ? (
+                    {message.type === 'progress' ? (
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
+                        <span className={colors.textSecondary}>{message.content}</span>
+                      </div>
+                    ) : message.content === '...' ? (
                       <div className="flex items-center gap-2 py-1">
                         <div className="flex gap-1">
                           <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
@@ -1597,7 +2089,7 @@ export default function ChatPage() {
             ))}
           </div>
 
-          {/* Input Area - Mobile */}
+          {/* Mobile Input */}
           <div className={`${isDark ? 'bg-slate-900/80' : 'bg-white'} rounded-xl p-3 border ${colors.borderLight}`}>
             <div className="flex gap-2 items-end">
               <textarea
@@ -1614,27 +2106,26 @@ export default function ChatPage() {
                   }
                 }}
                 placeholder="Ask anything..."
-                disabled={sending}
+                disabled={sending || processingStatus === 'processing'}
                 className={`flex-1 px-3 py-2 ${colors.bgInput} border ${colors.borderInput} rounded-xl ${colors.text} ${colors.placeholder} focus:outline-none focus:border-cyan-500 disabled:opacity-50 resize-none text-sm`}
                 rows={1}
                 style={{ minHeight: '40px', maxHeight: '100px' }}
               />
               <button
                 onClick={() => handleSendMessage()}
-                disabled={sending || !inputValue.trim()}
+                disabled={sending || !inputValue.trim() || processingStatus === 'processing'}
                 className="p-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-xl disabled:opacity-50 flex-shrink-0"
               >
                 {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
               </button>
             </div>
             
-            {/* Quick Questions - Below Input, Smaller & Brighter - Mobile */}
             <div className="flex gap-1.5 overflow-x-auto pt-2 scrollbar-hide">
               {suggestedQuestions.slice(0, 4).map((question, index) => (
                 <button
                   key={index}
                   onClick={() => handleSendMessage(question)}
-                  disabled={sending}
+                  disabled={sending || processingStatus === 'processing'}
                   className={`flex-shrink-0 px-2 py-1 ${colors.cyanBg} text-cyan-500 text-[10px] rounded-full border ${colors.cyanBorder} whitespace-nowrap`}
                 >
                   {question.length > 25 ? question.substring(0, 25) + '...' : question}
@@ -1647,7 +2138,7 @@ export default function ChatPage() {
             </p>
           </div>
 
-          {/* Prescription Details - Below Chat on Mobile */}
+          {/* Mobile Prescription Details */}
           <div className={`pt-4 border-t ${colors.border}`}>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center">
@@ -1659,18 +2150,34 @@ export default function ChatPage() {
               </div>
             </div>
             
-            <PrescriptionDetails
-              prescription={prescription}
-              medicines={medicines}
-              tests={tests}
-              precautions={precautions}
-              followUp={followUp}
-              formatDate={formatDate}
-              getAiSummary={getAiSummary}
-              isDark={isDark}
-            />
+            {!isProcessingComplete ? (
+              <div className={`${colors.bgCard} rounded-xl border ${colors.borderLight} p-6 text-center`}>
+                <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin mx-auto mb-3" />
+                <p className={`${colors.text} text-sm`}>Analyzing prescription...</p>
+                <p className={`${colors.textSecondary} text-xs mt-1`}>{processingProgress || 'Please wait'}</p>
+                <button
+                  onClick={refreshPrescriptionStatus}
+                  disabled={isRefreshing}
+                  className={`mt-3 px-3 py-1.5 rounded-lg text-xs ${
+                    isDark ? 'bg-slate-700 text-slate-300' : 'bg-gray-200 text-gray-700'
+                  } disabled:opacity-50`}
+                >
+                  {isRefreshing ? 'Checking...' : 'Check Status'}
+                </button>
+              </div>
+            ) : (
+              <PrescriptionDetails
+                prescription={prescription}
+                medicines={medicines}
+                tests={tests}
+                precautions={precautions}
+                followUp={followUp}
+                formatDate={formatDate}
+                getAiSummary={getAiSummary}
+                isDark={isDark}
+              />
+            )}
 
-            {/* Sanskrit Footer - Mobile */}
             <div className="text-center py-4 mt-4">
               <p className="text-green-500 text-sm font-medium">सर्वे सन्तु निरामया:</p>
               <p className="text-orange-500 text-xs mt-1">"May all be free from illness"</p>
