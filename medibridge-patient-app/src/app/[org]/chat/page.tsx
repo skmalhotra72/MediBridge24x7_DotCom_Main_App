@@ -7,7 +7,9 @@ import {
   ArrowLeft, Send, Loader2, User, Stethoscope, Calendar, 
   CheckCircle, Building2, Phone, FileText, ChevronDown, 
   ChevronUp, Pill, AlertTriangle, FlaskConical, Clock,
-  Bot, Sparkles, Moon, Sun, UserPlus, RefreshCw, RotateCcw
+  Bot, Sparkles, Moon, Sun, UserPlus, RefreshCw, RotateCcw,
+  Paperclip, Camera, Mic, MicOff, X, Upload, Image, Square,
+  AlertCircle
 } from 'lucide-react';
 
 // ============================================
@@ -19,7 +21,10 @@ interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
-  type?: 'welcome' | 'question' | 'answer' | 'general' | 'progress';
+  type?: 'welcome' | 'question' | 'answer' | 'general' | 'progress' | 'upload' | 'error';
+  fileUrl?: string;
+  fileType?: string;
+  fileName?: string;
 }
 
 interface PrescriptionData {
@@ -71,6 +76,22 @@ interface PrescriptionItem {
   medicine_form: string | null;
 }
 
+interface UploadResult {
+  success: boolean;
+  fileUrl?: string;
+  storagePath?: string;
+  error?: string;
+}
+
+interface PatientData {
+  id: string;
+  full_name: string;
+  email?: string | null;
+  phone?: string | null;
+  organization_id: string;
+  auth_user_id: string;
+}
+
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
@@ -92,30 +113,21 @@ const safeParseArray = (value: any): string[] => {
   return [];
 };
 
-// ============================================
-// EXTRACT AI ANSWER HELPER - CRITICAL FIX
-// This function handles all possible formats of AI answer
-// from response_data (n8n Update Final Status node output)
-// ============================================
 const extractAiAnswer = (data: any): string | null => {
   if (!data) return null;
   
-  // 1. First check direct ai_answer field
   if (data.ai_answer && typeof data.ai_answer === 'string') {
     return data.ai_answer;
   }
   
-  // 2. Check response_data field (this is where n8n stores it)
   if (data.response_data) {
     let responseData = data.response_data;
     
-    // Parse if it's a string
     if (typeof responseData === 'string') {
       try {
         responseData = JSON.parse(responseData);
       } catch (e) {
         console.error('Error parsing response_data string:', e);
-        // If it's a plain string, it might be the answer itself
         if (responseData.length > 50) {
           return responseData;
         }
@@ -123,18 +135,14 @@ const extractAiAnswer = (data: any): string | null => {
       }
     }
     
-    // Now responseData should be an object
-    // Check for ai_answer (our n8n format)
     if (responseData.ai_answer) {
       return responseData.ai_answer;
     }
     
-    // Check for output (alternative format)
     if (responseData.output) {
       return responseData.output;
     }
     
-    // Check for text (another alternative)
     if (responseData.text) {
       return responseData.text;
     }
@@ -177,8 +185,53 @@ const getThemeColors = (isDark: boolean) => ({
   badgeOrange: isDark ? 'bg-orange-500/20 text-orange-400' : 'bg-orange-100 text-orange-700',
   badgeTeal: isDark ? 'bg-teal-500/20 text-teal-400' : 'bg-teal-100 text-teal-700',
   badgePink: isDark ? 'bg-pink-500/20 text-pink-400' : 'bg-pink-100 text-pink-700',
+  badgeRed: isDark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700',
   placeholder: isDark ? 'placeholder-slate-500' : 'placeholder-gray-400',
 });
+
+// ============================================
+// NO PATIENT ERROR COMPONENT
+// ============================================
+
+interface NoPatientErrorProps {
+  orgSlug: string;
+  isDark: boolean;
+  onGoToDashboard: () => void;
+}
+
+const NoPatientError = ({ orgSlug, isDark, onGoToDashboard }: NoPatientErrorProps) => {
+  const colors = getThemeColors(isDark);
+  
+  return (
+    <div className={`fixed inset-0 ${colors.bg} flex items-center justify-center z-[9999] p-4`}>
+      <div className={`${colors.bgCard} rounded-2xl border ${colors.borderLight} p-8 max-w-md w-full text-center shadow-xl`}>
+        <div className="w-16 h-16 bg-gradient-to-br from-orange-500 to-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+          <AlertCircle className="w-8 h-8 text-white" />
+        </div>
+        
+        <h2 className={`${colors.text} text-xl font-bold mb-2`}>No Patient Selected</h2>
+        
+        <p className={`${colors.textSecondary} text-sm mb-6`}>
+          To upload a prescription or start a chat, please go to the dashboard and select a patient first.
+        </p>
+        
+        <div className="space-y-3">
+          <button
+            onClick={onGoToDashboard}
+            className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-medium rounded-xl hover:from-cyan-600 hover:to-blue-700 transition-colors flex items-center justify-center gap-2"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Go to Dashboard
+          </button>
+          
+          <p className={`${colors.textMuted} text-xs`}>
+            You can select an existing patient or add a new family member from the dashboard.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ============================================
 // PROCESSING STATUS COMPONENT
@@ -261,7 +314,6 @@ const ProcessingStatus = ({
     return { steps, currentStepIndex };
   };
 
-  // Don't show when complete
   if (status === 'completed') {
     return null;
   }
@@ -290,7 +342,6 @@ const ProcessingStatus = ({
           </div>
         </div>
         
-        {/* Refresh Button */}
         <button
           onClick={onRefresh}
           disabled={isRefreshing}
@@ -335,7 +386,6 @@ const ProcessingStatus = ({
         </div>
       )}
 
-      {/* Show refresh hint after timeout */}
       {showRefreshHint && status === 'processing' && (
         <div className={`mt-3 pt-3 border-t ${isDark ? 'border-slate-600/50' : 'border-gray-300'}`}>
           <p className={`text-xs ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
@@ -423,7 +473,7 @@ const CollapsibleCard = ({
 };
 
 // ============================================
-// STATIC CARD COMPONENT (Always Open)
+// STATIC CARD COMPONENT
 // ============================================
 
 interface StaticCardProps {
@@ -586,6 +636,615 @@ const RenderMarkdown = ({ text, className = '', isDark }: { text: string; classN
 };
 
 // ============================================
+// FILE UPLOAD MODAL COMPONENT
+// ============================================
+
+interface FileUploadModalProps {
+  onClose: () => void;
+  onFileSelect: (file: File, type: 'prescription' | 'lab_report', question: string) => void;
+  isDark: boolean;
+  patientName?: string;
+}
+
+const FileUploadModal = ({ onClose, onFileSelect, isDark, patientName }: FileUploadModalProps) => {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [documentType, setDocumentType] = useState<'prescription' | 'lab_report'>('prescription');
+  const [question, setQuestion] = useState('');
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const colors = getThemeColors(isDark);
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      if (isValidFile(file)) {
+        setSelectedFile(file);
+      }
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      if (isValidFile(file)) {
+        setSelectedFile(file);
+      }
+    }
+  };
+
+  const isValidFile = (file: File): boolean => {
+    const validTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    const maxSize = 10 * 1024 * 1024;
+    
+    if (!validTypes.includes(file.type)) {
+      alert('Please select a PDF or image file (PNG, JPG, JPEG, WEBP)');
+      return false;
+    }
+    if (file.size > maxSize) {
+      alert('File size must be less than 10MB');
+      return false;
+    }
+    return true;
+  };
+
+  const handleSubmit = () => {
+    if (selectedFile) {
+      const defaultQuestion = documentType === 'prescription' 
+        ? 'Please analyze this prescription and explain the medicines'
+        : 'Please analyze this lab report and explain the results';
+      onFileSelect(selectedFile, documentType, question.trim() || defaultQuestion);
+      onClose();
+    }
+  };
+
+  const getFileIcon = () => {
+    if (!selectedFile) return null;
+    if (selectedFile.type.includes('pdf')) return <FileText className="w-8 h-8 text-red-500" />;
+    if (selectedFile.type.includes('image')) return <Image className="w-8 h-8 text-blue-500" />;
+    return <FileText className="w-8 h-8 text-gray-500" />;
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[10000] p-4">
+      <div className={`${colors.bgSecondary} rounded-2xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto`}>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <h3 className={`text-lg font-semibold ${colors.text}`}>Upload Document</h3>
+          <button onClick={onClose} className={`p-1 ${isDark ? 'hover:bg-slate-700' : 'hover:bg-gray-100'} rounded-full`}>
+            <X className={`w-5 h-5 ${colors.textSecondary}`} />
+          </button>
+        </div>
+
+        {/* Patient Info Badge */}
+        {patientName && (
+          <div className={`mb-4 p-3 ${colors.cyanBg} rounded-lg border ${colors.cyanBorder}`}>
+            <p className={`text-xs ${colors.textSecondary}`}>Uploading for:</p>
+            <p className={`text-sm font-medium ${colors.cyan}`}>{patientName}</p>
+          </div>
+        )}
+
+        {/* Document Type Selection */}
+        <div className="mb-4">
+          <label className={`block text-sm font-medium ${colors.textSecondary} mb-2`}>
+            What are you uploading?
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setDocumentType('prescription')}
+              className={`p-3 rounded-lg border-2 text-sm font-medium transition-colors ${
+                documentType === 'prescription'
+                  ? 'border-cyan-500 bg-cyan-500/10 text-cyan-500'
+                  : `${colors.border} ${isDark ? 'hover:border-slate-600' : 'hover:border-gray-300'} ${colors.text}`
+              }`}
+            >
+              💊 Prescription
+            </button>
+            <button
+              onClick={() => setDocumentType('lab_report')}
+              className={`p-3 rounded-lg border-2 text-sm font-medium transition-colors ${
+                documentType === 'lab_report'
+                  ? 'border-cyan-500 bg-cyan-500/10 text-cyan-500'
+                  : `${colors.border} ${isDark ? 'hover:border-slate-600' : 'hover:border-gray-300'} ${colors.text}`
+              }`}
+            >
+              🔬 Lab Report
+            </button>
+          </div>
+        </div>
+
+        {/* Dropzone */}
+        <div
+          onDragEnter={handleDrag}
+          onDragLeave={handleDrag}
+          onDragOver={handleDrag}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors mb-4 ${
+            dragActive
+              ? 'border-cyan-500 bg-cyan-500/10'
+              : selectedFile
+                ? 'border-green-500 bg-green-500/10'
+                : `${colors.border} ${isDark ? 'hover:border-slate-600' : 'hover:border-gray-400'}`
+          }`}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg,.webp"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          
+          {selectedFile ? (
+            <div className="flex flex-col items-center gap-2">
+              {getFileIcon()}
+              <p className={`text-sm font-medium ${colors.text}`}>{selectedFile.name}</p>
+              <p className={`text-xs ${colors.textSecondary}`}>
+                {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+              </p>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedFile(null);
+                }}
+                className="text-xs text-red-500 hover:underline"
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <>
+              <Upload className={`w-10 h-10 ${colors.textMuted} mx-auto mb-2`} />
+              <p className={`text-sm ${colors.textSecondary}`}>
+                {dragActive ? 'Drop the file here' : 'Drag & drop or click to select'}
+              </p>
+              <p className={`text-xs ${colors.textMuted} mt-1`}>
+                PDF, PNG, JPG up to 10MB
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* Question Field */}
+        <div className="mb-4">
+          <label className={`block text-sm font-medium ${colors.textSecondary} mb-2`}>
+            What would you like to know? (Optional)
+          </label>
+          <textarea
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder={documentType === 'prescription' 
+              ? "e.g., Explain these medicines and their side effects"
+              : "e.g., Are these test results normal?"}
+            className={`w-full px-3 py-2 ${colors.bgInput} border ${colors.borderInput} rounded-xl ${colors.text} ${colors.placeholder} focus:outline-none focus:border-cyan-500 resize-none text-sm`}
+            rows={2}
+          />
+          <p className={`text-xs ${colors.textMuted} mt-1`}>
+            Leave blank for standard analysis
+          </p>
+        </div>
+
+        {/* Submit Button */}
+        <button
+          onClick={handleSubmit}
+          disabled={!selectedFile}
+          className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-medium rounded-xl hover:from-cyan-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          Upload & Analyze
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// CAMERA CAPTURE COMPONENT
+// ============================================
+
+interface CameraCaptureProps {
+  onClose: () => void;
+  onCapture: (imageBlob: Blob) => void;
+  isDark: boolean;
+}
+
+const CameraCapture = ({ onClose, onCapture, isDark }: CameraCaptureProps) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+
+  useEffect(() => {
+    startCamera();
+    return () => {
+      stopCamera();
+    };
+  }, [facingMode]);
+
+  const startCamera = async () => {
+    try {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { 
+          facingMode: facingMode, 
+          width: { ideal: 1920 }, 
+          height: { ideal: 1080 } 
+        }
+      });
+      setStream(mediaStream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+      }
+      setError(null);
+    } catch (err) {
+      setError('Unable to access camera. Please grant permission.');
+      console.error('Camera error:', err);
+    }
+  };
+
+  const stopCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+    }
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0);
+        const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        setCapturedImage(imageDataUrl);
+        stopCamera();
+      }
+    }
+  };
+
+  const retake = () => {
+    setCapturedImage(null);
+    startCamera();
+  };
+
+  const confirmCapture = async () => {
+    if (capturedImage) {
+      const response = await fetch(capturedImage);
+      const blob = await response.blob();
+      onCapture(blob);
+      onClose();
+    }
+  };
+
+  const toggleCamera = () => {
+    setCapturedImage(null);
+    setFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black flex flex-col z-[10000]">
+      <div className="absolute top-0 left-0 right-0 p-4 flex items-center justify-between z-10 bg-gradient-to-b from-black/50 to-transparent">
+        <button onClick={onClose} className="p-2 text-white hover:bg-white/20 rounded-full">
+          <X className="w-6 h-6" />
+        </button>
+        <span className="text-white font-medium">Take Photo of Prescription</span>
+        <button onClick={toggleCamera} className="p-2 text-white hover:bg-white/20 rounded-full">
+          <RotateCcw className="w-6 h-6" />
+        </button>
+      </div>
+
+      <div className="flex-1 flex items-center justify-center">
+        {error ? (
+          <div className="text-white text-center p-4">
+            <p className="mb-4">{error}</p>
+            <button
+              onClick={startCamera}
+              className="px-4 py-2 bg-white text-black rounded-lg"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : capturedImage ? (
+          <img src={capturedImage} alt="Captured" className="max-h-full max-w-full object-contain" />
+        ) : (
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="max-h-full max-w-full object-contain"
+          />
+        )}
+      </div>
+
+      <canvas ref={canvasRef} className="hidden" />
+
+      <div className="absolute bottom-0 left-0 right-0 p-6 flex items-center justify-center gap-6 bg-gradient-to-t from-black/50 to-transparent">
+        {capturedImage ? (
+          <>
+            <button
+              onClick={retake}
+              className="px-6 py-3 bg-white/20 text-white rounded-full font-medium"
+            >
+              Retake
+            </button>
+            <button
+              onClick={confirmCapture}
+              className="px-6 py-3 bg-cyan-500 text-white rounded-full font-medium flex items-center gap-2"
+            >
+              <CheckCircle className="w-5 h-5" />
+              Use Photo
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={capturePhoto}
+            disabled={!!error}
+            className="w-16 h-16 bg-white rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors disabled:opacity-50"
+          >
+            <Camera className="w-8 h-8 text-gray-900" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// VOICE RECORDER COMPONENT
+// ============================================
+
+interface VoiceRecorderProps {
+  onStop: (audioBlob: Blob, duration: number) => void;
+  onCancel: () => void;
+  isDark: boolean;
+}
+
+const VoiceRecorder = ({ onStop, onCancel, isDark }: VoiceRecorderProps) => {
+  const [isRecording, setIsRecording] = useState(true);
+  const [duration, setDuration] = useState(0);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const colors = getThemeColors(isDark);
+
+  useEffect(() => {
+    startRecording();
+    return () => {
+      stopTimer();
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      
+      let mimeType = 'audio/webm';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/mp4';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = '';
+        }
+      }
+      
+      const mediaRecorder = mimeType 
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+        
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: mimeType || 'audio/webm' });
+        setAudioBlob(blob);
+        setAudioUrl(URL.createObjectURL(blob));
+      };
+
+      mediaRecorder.start();
+      startTimer();
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Microphone error:', err);
+      alert('Unable to access microphone. Please grant permission.');
+      onCancel();
+    }
+  };
+
+  const startTimer = () => {
+    timerRef.current = setInterval(() => {
+      setDuration(prev => prev + 1);
+    }, 1000);
+  };
+
+  const stopTimer = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      stopTimer();
+      setIsRecording(false);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    }
+  };
+
+  const sendRecording = () => {
+    if (audioBlob) {
+      onStop(audioBlob, duration);
+    }
+  };
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className={`fixed bottom-24 left-4 right-4 ${colors.bgSecondary} rounded-2xl shadow-lg p-4 z-[10000] border ${colors.border}`}>
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          {isRecording && (
+            <span className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+          )}
+          <span className={`font-mono text-lg ${colors.text}`}>{formatDuration(duration)}</span>
+        </div>
+
+        <div className={`flex-1 h-8 ${isDark ? 'bg-slate-700' : 'bg-gray-100'} rounded-full overflow-hidden flex items-center px-2`}>
+          {isRecording ? (
+            <div className="flex items-center gap-1 w-full justify-center">
+              {[...Array(15)].map((_, i) => (
+                <div
+                  key={i}
+                  className="w-1 bg-cyan-500 rounded-full animate-pulse"
+                  style={{
+                    height: `${Math.random() * 20 + 8}px`,
+                    animationDelay: `${i * 50}ms`
+                  }}
+                />
+              ))}
+            </div>
+          ) : audioUrl ? (
+            <audio src={audioUrl} controls className="w-full h-6" />
+          ) : null}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {isRecording ? (
+            <button
+              onClick={stopRecording}
+              className="p-3 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+            >
+              <Square className="w-5 h-5" />
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={onCancel}
+                className={`p-3 ${isDark ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'} rounded-full transition-colors`}
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <button
+                onClick={sendRecording}
+                className="p-3 bg-cyan-500 text-white rounded-full hover:bg-cyan-600 transition-colors"
+              >
+                <Send className="w-5 h-5" />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      
+      <p className={`text-center ${colors.textMuted} text-xs mt-2`}>
+        {isRecording ? 'Recording... Tap stop when done' : 'Review your recording'}
+      </p>
+    </div>
+  );
+};
+
+// ============================================
+// CHAT INPUT ACTIONS COMPONENT
+// ============================================
+
+interface ChatInputActionsProps {
+  onUploadClick: () => void;
+  onCameraClick: () => void;
+  onVoiceClick: () => void;
+  isRecording: boolean;
+  disabled?: boolean;
+  isDark: boolean;
+}
+
+const ChatInputActions = ({
+  onUploadClick,
+  onCameraClick,
+  onVoiceClick,
+  isRecording,
+  disabled = false,
+  isDark
+}: ChatInputActionsProps) => {
+  const colors = getThemeColors(isDark);
+
+  return (
+    <div className={`flex items-center gap-1 px-2 py-1.5 border-t ${colors.borderLight}`}>
+      <button
+        onClick={onUploadClick}
+        disabled={disabled}
+        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs ${colors.textSecondary} hover:text-cyan-500 ${isDark ? 'hover:bg-slate-700' : 'hover:bg-gray-100'} rounded-lg transition-colors disabled:opacity-50`}
+        title="Upload Prescription or Lab Report"
+      >
+        <Paperclip className="w-4 h-4" />
+        <span className="hidden sm:inline">Upload</span>
+      </button>
+
+      <button
+        onClick={onCameraClick}
+        disabled={disabled}
+        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs ${colors.textSecondary} hover:text-cyan-500 ${isDark ? 'hover:bg-slate-700' : 'hover:bg-gray-100'} rounded-lg transition-colors disabled:opacity-50`}
+        title="Take Photo of Prescription"
+      >
+        <Camera className="w-4 h-4" />
+        <span className="hidden sm:inline">Camera</span>
+      </button>
+
+      <button
+        onClick={onVoiceClick}
+        disabled={disabled}
+        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-colors disabled:opacity-50 ${
+          isRecording 
+            ? 'text-red-500 bg-red-500/10 hover:bg-red-500/20' 
+            : `${colors.textSecondary} hover:text-cyan-500 ${isDark ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`
+        }`}
+        title={isRecording ? "Stop Recording" : "Voice Message"}
+      >
+        {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+        <span className="hidden sm:inline">{isRecording ? 'Stop' : 'Voice'}</span>
+      </button>
+    </div>
+  );
+};
+
+// ============================================
 // PRESCRIPTION DETAILS COMPONENT
 // ============================================
 
@@ -614,7 +1273,6 @@ const PrescriptionDetails = ({
 
   return (
     <div className="space-y-3">
-      {/* 1. Prescription Analysis */}
       <CollapsibleCard
         title="Prescription Analysis"
         icon={<CheckCircle className="w-4 h-4" />}
@@ -670,7 +1328,6 @@ const PrescriptionDetails = ({
         </div>
       </CollapsibleCard>
 
-      {/* 2. AI Analysis Complete */}
       <StaticCard
         title="AI Analysis Complete"
         icon={<Sparkles className="w-4 h-4" />}
@@ -695,7 +1352,6 @@ const PrescriptionDetails = ({
         </div>
       </StaticCard>
 
-      {/* 3. Precautions */}
       <StaticCard
         title="Precautions"
         icon={<AlertTriangle className="w-4 h-4" />}
@@ -718,7 +1374,6 @@ const PrescriptionDetails = ({
         )}
       </StaticCard>
 
-      {/* 4. Diagnostic Tests */}
       <CollapsibleCard
         title="Diagnostic Tests"
         icon={<FlaskConical className="w-4 h-4" />}
@@ -748,7 +1403,6 @@ const PrescriptionDetails = ({
         )}
       </CollapsibleCard>
 
-      {/* 5. Prescribed Medicines */}
       <CollapsibleCard
         title="Prescribed Medicines"
         icon={<Pill className="w-4 h-4" />}
@@ -802,7 +1456,6 @@ const PrescriptionDetails = ({
         )}
       </CollapsibleCard>
 
-      {/* 6. Follow Up */}
       <CollapsibleCard
         title="Follow Up"
         icon={<Clock className="w-4 h-4" />}
@@ -831,7 +1484,6 @@ const PrescriptionDetails = ({
         </div>
       </CollapsibleCard>
 
-      {/* 7. Doctor Information */}
       <CollapsibleCard
         title="Doctor Information"
         icon={<Stethoscope className="w-4 h-4" />}
@@ -863,7 +1515,6 @@ const PrescriptionDetails = ({
         </div>
       </CollapsibleCard>
 
-      {/* 8. Clinic Information */}
       <CollapsibleCard
         title="Clinic Information"
         icon={<Building2 className="w-4 h-4" />}
@@ -902,7 +1553,7 @@ const PrescriptionDetails = ({
 };
 
 // ============================================
-// MAIN COMPONENT
+// MAIN COMPONENT - FIXED VERSION (NO AUTO-CREATE PATIENTS)
 // ============================================
 
 export default function ChatPage() {
@@ -912,11 +1563,9 @@ export default function ChatPage() {
   const org = params.org as string;
   const prescriptionId = searchParams.get('prescription_id');
   const sessionId = searchParams.get('session');
+  const patientIdFromUrl = searchParams.get('patient_id');
 
-  // Theme state
   const [isDark, setIsDark] = useState(true);
-
-  // Core state
   const [prescription, setPrescription] = useState<PrescriptionData | null>(null);
   const [prescriptionItems, setPrescriptionItems] = useState<PrescriptionItem[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -925,21 +1574,27 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [orgName, setOrgName] = useState('');
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
-  
-  // Connect to Doctor state
   const [escalating, setEscalating] = useState(false);
   const [escalated, setEscalated] = useState(false);
   const [orgId, setOrgId] = useState<string | null>(null);
-  
-  // Processing state for Realtime
   const [processingStatus, setProcessingStatus] = useState<string>('pending');
   const [processingProgress, setProcessingProgress] = useState<string>('');
-  
-  // Refresh fallback state
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showRefreshHint, setShowRefreshHint] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [processingStartTime, setProcessingStartTime] = useState<number | null>(null);
+  const [showFileModal, setShowFileModal] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  
+  // ============================================
+  // CRITICAL: Patient state - NO AUTO-CREATION
+  // ============================================
+  const [patientId, setPatientId] = useState<string | null>(null);
+  const [patientData, setPatientData] = useState<PatientData | null>(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [noPatientFound, setNoPatientFound] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
@@ -953,7 +1608,6 @@ export default function ChatPage() {
     'Any drug interactions?'
   ];
 
-  // Load theme from localStorage
   useEffect(() => {
     const savedTheme = localStorage.getItem('medibridge-theme');
     if (savedTheme) {
@@ -961,7 +1615,6 @@ export default function ChatPage() {
     }
   }, []);
 
-  // Toggle theme
   const toggleTheme = () => {
     const newTheme = !isDark;
     setIsDark(newTheme);
@@ -977,8 +1630,625 @@ export default function ChatPage() {
   }, [messages]);
 
   // ============================================
-  // FETCH PRESCRIPTION ITEMS HELPER
+  // CRITICAL: FETCH EXISTING PATIENT ONLY - NO CREATION
   // ============================================
+  const fetchExistingPatient = useCallback(async (userId: string, organizationId: string): Promise<PatientData | null> => {
+    console.log('🔍 Looking for existing patient:', { userId, organizationId });
+    
+    try {
+      // Strategy 1: Look for patient by auth_user_id and organization_id
+      const { data: existingPatient, error } = await supabase
+        .from('patients')
+        .select('id, full_name, email, phone, organization_id, auth_user_id')
+        .eq('auth_user_id', userId)
+        .eq('organization_id', organizationId)
+        .order('created_at', { ascending: true }) // Get the oldest (primary) patient
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('❌ Error fetching patient:', error);
+        return null;
+      }
+
+      if (existingPatient) {
+        console.log('✅ Found existing patient:', existingPatient.id, existingPatient.full_name);
+        return existingPatient as PatientData;
+      }
+
+      // Strategy 2: If patient_id is in URL, verify it belongs to this user
+      if (patientIdFromUrl) {
+        const { data: urlPatient, error: urlError } = await supabase
+          .from('patients')
+          .select('id, full_name, email, phone, organization_id, auth_user_id')
+          .eq('id', patientIdFromUrl)
+          .eq('auth_user_id', userId)
+          .maybeSingle();
+
+        if (!urlError && urlPatient) {
+          console.log('✅ Found patient from URL:', urlPatient.id, urlPatient.full_name);
+          return urlPatient as PatientData;
+        }
+      }
+
+      // Strategy 3: If we have a prescription, get patient from there
+      if (prescriptionId) {
+        const { data: prescPatient, error: prescError } = await supabase
+          .from('prescriptions')
+          .select('patient_id, patients:patient_id(id, full_name, email, phone, organization_id, auth_user_id)')
+          .eq('id', prescriptionId)
+          .single();
+
+        if (!prescError && prescPatient?.patients) {
+          const patient = prescPatient.patients as any;
+          // Verify this patient belongs to the current user
+          if (patient.auth_user_id === userId) {
+            console.log('✅ Found patient from prescription:', patient.id, patient.full_name);
+            return patient as PatientData;
+          }
+        }
+      }
+
+      console.log('⚠️ No existing patient found for user in this organization');
+      return null;
+
+    } catch (error) {
+      console.error('❌ Error in fetchExistingPatient:', error);
+      return null;
+    }
+  }, [supabase, patientIdFromUrl, prescriptionId]);
+
+  // ============================================
+  // INITIALIZE: Fetch user and patient on load
+  // ============================================
+  useEffect(() => {
+    async function initialize() {
+      try {
+        setLoading(true);
+        
+        // Step 1: Get current user
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          console.log('❌ No authenticated user, redirecting to login');
+          router.push(`/${org}/login`);
+          return;
+        }
+        setCurrentUser(user);
+        console.log('✅ User authenticated:', user.id);
+
+        // Step 2: Get organization
+        const { data: orgData, error: orgError } = await supabase
+          .from('organizations')
+          .select('id, name')
+          .eq('slug', org)
+          .single();
+
+        if (orgError || !orgData) {
+          console.error('❌ Organization not found:', org);
+          router.push('/');
+          return;
+        }
+        
+        setOrgId(orgData.id);
+        setOrgName(orgData.name || org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
+        console.log('✅ Organization found:', orgData.id, orgData.name);
+
+        // Step 3: Find existing patient (NO CREATION!)
+        const existingPatient = await fetchExistingPatient(user.id, orgData.id);
+        
+        if (existingPatient) {
+          setPatientId(existingPatient.id);
+          setPatientData(existingPatient);
+          console.log('✅ Patient loaded:', existingPatient.full_name);
+        } else {
+          // NO patient found - show error, don't auto-create!
+          console.log('⚠️ No patient found - showing error screen');
+          setNoPatientFound(true);
+          setLoading(false);
+          return;
+        }
+
+        // Step 4: Load prescription if ID provided
+        if (prescriptionId) {
+          await loadPrescription(prescriptionId);
+        } else {
+          // No prescription - just welcome message
+          setMessages([{
+            id: 'welcome',
+            role: 'assistant',
+            content: `Hello ${existingPatient.full_name}! I'm Dr. Bridge, your AI healthcare assistant. You can upload a prescription or lab report, and I'll help you understand it. What would you like to do?`,
+            timestamp: new Date(),
+            type: 'welcome'
+          }]);
+          setSuggestedQuestions(defaultQuickQuestions);
+        }
+
+        setLoading(false);
+
+      } catch (error) {
+        console.error('❌ Initialization error:', error);
+        setLoading(false);
+      }
+    }
+
+    initialize();
+  }, [org, prescriptionId, supabase, router, fetchExistingPatient]);
+
+  // ============================================
+  // LOAD PRESCRIPTION DATA
+  // ============================================
+  const loadPrescription = async (prescId: string) => {
+    try {
+      const { data: prescriptionData, error: prescriptionError } = await supabase
+        .from('prescriptions')
+        .select(`
+          id, file_url, status, created_at, chief_complaint,
+          patient_name, patient_age, patient_gender,
+          doctor_name, doctor_qualifications, doctor_registration,
+          clinic_name, clinic_address, clinic_contact,
+          prescription_date_extracted, diagnosis,
+          user_question, ai_answer, ai_analysis, ai_summary,
+          precautions, follow_up_instructions,
+          total_medicines, total_tests, document_type,
+          suggested_questions,
+          processing_status, processing_progress, response_data
+        `)
+        .eq('id', prescId)
+        .single();
+
+      if (!prescriptionError && prescriptionData) {
+        setPrescription(prescriptionData);
+        setProcessingStatus(prescriptionData.processing_status || 'pending');
+        setProcessingProgress(prescriptionData.processing_progress || '');
+        
+        if (prescriptionData.processing_status === 'processing') {
+          setProcessingStartTime(Date.now());
+        }
+        
+        const dbQuestions = safeParseArray(prescriptionData.suggested_questions);
+        setSuggestedQuestions(dbQuestions.length > 0 ? dbQuestions : defaultQuickQuestions);
+        
+        const initialMessages: Message[] = [];
+        
+        initialMessages.push({
+          id: 'welcome',
+          role: 'assistant',
+          content: `Hello! I'm Dr. Bridge, your AI healthcare assistant. I've analyzed your prescription and I'm here to answer any questions you have about your medicines, dosages, and treatment plan. What would you like to know?`,
+          timestamp: new Date(prescriptionData.created_at),
+          type: 'welcome'
+        });
+        
+        if (prescriptionData.processing_status === 'processing') {
+          initialMessages.push({
+            id: 'processing',
+            role: 'assistant',
+            content: '⏳ Analyzing your prescription... Please wait.',
+            timestamp: new Date(),
+            type: 'progress'
+          });
+        }
+        
+        if (prescriptionData.processing_status === 'completed' || prescriptionData.status === 'analyzed') {
+          if (prescriptionData.user_question || prescriptionData.chief_complaint) {
+            initialMessages.push({
+              id: 'user-question',
+              role: 'user',
+              content: prescriptionData.user_question || prescriptionData.chief_complaint || '',
+              timestamp: new Date(prescriptionData.created_at),
+              type: 'question'
+            });
+          }
+          
+          const aiAnswer = extractAiAnswer(prescriptionData);
+          
+          if (aiAnswer) {
+            initialMessages.push({
+              id: 'ai-answer',
+              role: 'assistant',
+              content: aiAnswer,
+              timestamp: new Date(prescriptionData.created_at),
+              type: 'answer'
+            });
+          }
+        }
+        
+        setMessages(initialMessages);
+        
+        // Load prescription items
+        const { data: items } = await supabase
+          .from('prescription_items')
+          .select('*')
+          .eq('prescription_id', prescId)
+          .order('sequence_number', { ascending: true });
+        
+        if (items) {
+          setPrescriptionItems(items);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading prescription:', error);
+    }
+  };
+
+  // ============================================
+  // FILE UPLOAD HELPER
+  // ============================================
+  const uploadChatFile = async (
+    file: File | Blob,
+    fileType: 'prescription' | 'lab_report' | 'image' | 'audio'
+  ): Promise<UploadResult> => {
+    try {
+      const userId = currentUser?.id || 'anonymous';
+      const timestamp = Date.now();
+      const extension = file instanceof File 
+        ? file.name.split('.').pop() 
+        : file.type?.includes('audio') ? 'webm' : 'jpg';
+      const fileName = `${userId}/${fileType}_${timestamp}.${extension}`;
+      const bucket = file.type?.includes('audio') ? 'voice-messages' : 
+                     fileType === 'lab_report' ? 'lab-reports' : 'prescriptions';
+
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (error) throw error;
+
+      const { data: urlData } = supabase.storage
+        .from(bucket)
+        .getPublicUrl(fileName);
+
+      return {
+        success: true,
+        fileUrl: urlData.publicUrl,
+        storagePath: data.path
+      };
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  };
+
+  // ============================================
+  // HANDLE FILE UPLOAD - USES EXISTING PATIENT ONLY
+  // ============================================
+  const handleFileUpload = async (file: File, type: 'prescription' | 'lab_report', question: string) => {
+    // CRITICAL: Verify we have a patient
+    if (!patientId || !patientData) {
+      alert('No patient selected. Please go to the dashboard and select a patient first.');
+      router.push(`/${org}/dashboard`);
+      return;
+    }
+
+    setUploadingFile(true);
+    setShowFileModal(false);
+    
+    // Show upload started message
+    const uploadMessage: Message = {
+      id: `upload-${Date.now()}`,
+      role: 'user',
+      content: `📎 Uploading ${type === 'prescription' ? 'Prescription' : 'Lab Report'}...`,
+      timestamp: new Date(),
+      type: 'upload',
+      fileName: file.name
+    };
+    setMessages(prev => [...prev, uploadMessage]);
+    
+    try {
+      console.log('📤 Starting upload for patient:', patientId, patientData.full_name);
+
+      // Step 1: Upload file to storage
+      const uploadResult = await uploadChatFile(file, type);
+      if (!uploadResult.success || !uploadResult.fileUrl) {
+        throw new Error(uploadResult.error || 'File upload failed');
+      }
+      console.log('✅ File uploaded:', uploadResult.fileUrl);
+
+      // Update the upload message
+      setMessages(prev => prev.map(m => 
+        m.id === uploadMessage.id 
+          ? { 
+              ...m, 
+              content: `📎 ${file.name}${question ? `\n\n💬 "${question}"` : ''}`, 
+              fileUrl: uploadResult.fileUrl, 
+              fileType: type 
+            }
+          : m
+      ));
+
+      // Step 2: Create prescription record using EXISTING patient
+      const newChatSessionId = sessionId || `chat-upload-${Date.now()}`;
+      
+      const prescriptionData = {
+        patient_id: patientId,  // ✅ Using existing patient ID
+        organization_id: orgId,
+        file_url: uploadResult.fileUrl,
+        chief_complaint: question,
+        user_question: question,
+        document_type: type,
+        status: 'pending',
+        processing_status: 'processing',
+        processing_progress: 'Receiving your document...',
+        processing_started_at: new Date().toISOString()
+      };
+
+      console.log('📝 Creating prescription with existing patient:', prescriptionData);
+
+      const { data: newPrescription, error: prescriptionError } = await supabase
+        .from('prescriptions')
+        .insert(prescriptionData)
+        .select('id')
+        .single();
+
+      if (prescriptionError || !newPrescription) {
+        console.error('Prescription creation error:', prescriptionError);
+        throw new Error('Failed to create prescription record');
+      }
+
+      const newPrescriptionId = newPrescription.id;
+      console.log('✅ Prescription created:', newPrescriptionId);
+
+      // Show processing message
+      setMessages(prev => [...prev, {
+        id: 'processing',
+        role: 'assistant' as const,
+        content: `⏳ Analyzing your ${type === 'prescription' ? 'prescription' : 'lab report'}... Please wait.`,
+        timestamp: new Date(),
+        type: 'progress' as const
+      }]);
+
+      setProcessingStatus('processing');
+      setProcessingStartTime(Date.now());
+
+      // Step 3: Call n8n webhook
+      const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
+        'https://n8n.nhcare.in/webhook/medibridge-chat-v6-test';
+
+      const payload = {
+        prescription_id: newPrescriptionId,
+        patient_id: patientId,
+        chat_session_id: newChatSessionId,
+        user_id: currentUser?.id,
+        file_url: uploadResult.fileUrl,
+        document_type: type,
+        query: question,
+        chief_complaint: question,
+        user_question: question,
+        channel: 'web',
+        organization: org,
+        organization_id: orgId,
+        is_new_upload: false,  // Prescription already exists
+        upload_source: 'chat'
+      };
+
+      console.log('📤 Sending to n8n:', webhookUrl);
+
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+      console.log('📥 n8n response:', result);
+      
+      if (response.status === 202 || result.status === 'processing') {
+        console.log('⏳ Async processing started');
+      } else if (result.error) {
+        throw new Error(result.error || result.message || 'Analysis failed');
+      } else {
+        // Immediate response
+        setMessages(prev => {
+          const filtered = prev.filter(m => m.id !== 'processing');
+          return [...filtered, {
+            id: `assistant-${Date.now()}`,
+            role: 'assistant' as const,
+            content: result.output || result.text || result.ai_answer || 
+                     `I've analyzed your ${type}. Here's what I found...`,
+            timestamp: new Date(),
+            type: 'answer' as const
+          }];
+        });
+        
+        if (result.suggested_questions) {
+          setSuggestedQuestions(safeParseArray(result.suggested_questions));
+        }
+      }
+
+      // Subscribe to real-time updates
+      const channel = supabase
+        .channel(`prescription-${newPrescriptionId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'prescriptions',
+            filter: `id=eq.${newPrescriptionId}`
+          },
+          (payload) => {
+            const newData = payload.new as any;
+            console.log('📡 Real-time update:', newData.processing_status);
+            
+            setProcessingStatus(newData.processing_status || 'processing');
+            setProcessingProgress(newData.processing_progress || '');
+            
+            if (newData.processing_status === 'completed') {
+              const aiAnswer = extractAiAnswer(newData);
+              
+              setMessages(prev => {
+                const filtered = prev.filter(m => m.id !== 'processing');
+                if (aiAnswer) {
+                  return [...filtered, {
+                    id: `assistant-${Date.now()}`,
+                    role: 'assistant' as const,
+                    content: aiAnswer,
+                    timestamp: new Date(),
+                    type: 'answer' as const
+                  }];
+                }
+                return filtered;
+              });
+              
+              if (newData.response_data?.suggested_questions) {
+                setSuggestedQuestions(safeParseArray(newData.response_data.suggested_questions));
+              }
+              
+              supabase.removeChannel(channel);
+            }
+            
+            if (newData.processing_status === 'error') {
+              setMessages(prev => {
+                const filtered = prev.filter(m => m.id !== 'processing');
+                return [...filtered, {
+                  id: `error-${Date.now()}`,
+                  role: 'assistant' as const,
+                  content: 'Sorry, there was an error processing your document. Please try again.',
+                  timestamp: new Date(),
+                  type: 'error' as const
+                }];
+              });
+              supabase.removeChannel(channel);
+            }
+          }
+        )
+        .subscribe();
+
+    } catch (error: any) {
+      console.error('❌ Upload error:', error);
+      setMessages(prev => {
+        const filtered = prev.filter(m => m.id !== 'processing' && m.id !== uploadMessage.id);
+        return [...filtered, {
+          id: `error-${Date.now()}`,
+          role: 'assistant' as const,
+          content: `Sorry, I encountered an error: ${error.message || 'Please try again.'}`,
+          timestamp: new Date(),
+          type: 'error' as const
+        }];
+      });
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  // ============================================
+  // HANDLE CAMERA CAPTURE
+  // ============================================
+  const handleCameraCapture = async (imageBlob: Blob) => {
+    setShowCamera(false);
+    const file = new File([imageBlob], `prescription_photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+    await handleFileUpload(file, 'prescription', 'Please analyze this prescription and explain the medicines');
+  };
+
+  // ============================================
+  // HANDLE VOICE MESSAGE
+  // ============================================
+  const handleVoiceMessage = async (audioBlob: Blob, duration: number) => {
+    if (!patientId) {
+      alert('No patient selected. Please go to the dashboard first.');
+      return;
+    }
+
+    setIsRecording(false);
+    setUploadingFile(true);
+    
+    const voiceMessage: Message = {
+      id: `voice-${Date.now()}`,
+      role: 'user',
+      content: `🎤 Voice message (${Math.floor(duration / 60)}:${(duration % 60).toString().padStart(2, '0')})`,
+      timestamp: new Date(),
+      type: 'upload'
+    };
+    setMessages(prev => [...prev, voiceMessage]);
+    
+    const uploadResult = await uploadChatFile(audioBlob, 'audio');
+    
+    if (!uploadResult.success) {
+      setMessages(prev => {
+        const filtered = prev.filter(m => m.id !== voiceMessage.id);
+        return [...filtered, {
+          id: `error-${Date.now()}`,
+          role: 'assistant' as const,
+          content: '❌ Voice upload failed. Please try again.',
+          timestamp: new Date(),
+          type: 'error' as const
+        }];
+      });
+      setUploadingFile(false);
+      return;
+    }
+    
+    setMessages(prev => [...prev, {
+      id: 'processing',
+      role: 'assistant' as const,
+      content: '⏳ Processing your voice message...',
+      timestamp: new Date(),
+      type: 'progress' as const
+    }]);
+    
+    try {
+      const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
+        'https://n8n.nhcare.in/webhook/medibridge-chat-v6-test';
+
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patient_id: patientId,
+          chat_session_id: sessionId || prescriptionId || `chat-${Date.now()}`,
+          user_id: currentUser?.id,
+          file_url: uploadResult.fileUrl,
+          document_type: 'audio',
+          query: 'Voice message - please transcribe and respond',
+          channel: 'web',
+          organization: org
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.transcription) {
+        setMessages(prev => prev.map(m => 
+          m.id === voiceMessage.id 
+            ? { ...m, content: `🎤 "${result.transcription}"` }
+            : m
+        ));
+      }
+      
+      setMessages(prev => {
+        const filtered = prev.filter(m => m.id !== 'processing');
+        return [...filtered, {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant' as const,
+          content: result.output || result.text || 
+                   'I received your voice message. How can I help you?',
+          timestamp: new Date(),
+          type: 'answer' as const
+        }];
+      });
+      
+    } catch (error) {
+      console.error('Error processing voice:', error);
+      setMessages(prev => {
+        const filtered = prev.filter(m => m.id !== 'processing');
+        return [...filtered, {
+          id: `error-${Date.now()}`,
+          role: 'assistant' as const,
+          content: 'Sorry, I could not process your voice message. Please try again or type your question.',
+          timestamp: new Date(),
+          type: 'error' as const
+        }];
+      });
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
   const fetchPrescriptionItems = useCallback(async () => {
     if (!prescriptionId) return;
     
@@ -993,28 +2263,19 @@ export default function ChatPage() {
     }
   }, [prescriptionId, supabase]);
 
-  // ============================================
-  // ADD AI ANSWER TO MESSAGES HELPER - CRITICAL
-  // This ensures we don't add duplicate messages
-  // ============================================
   const addAiAnswerToMessages = useCallback((aiAnswer: string) => {
     if (!aiAnswer) return;
     
     setMessages(prev => {
-      // Remove any processing/loading messages
       const filtered = prev.filter(m => m.id !== 'processing' && m.id !== 'loading');
-      
-      // Check if we already have this exact answer
       const alreadyHasThisAnswer = filtered.some(
         m => m.type === 'answer' && m.content === aiAnswer
       );
       
       if (alreadyHasThisAnswer) {
-        console.log('⚠️ AI answer already exists in messages, skipping duplicate');
         return filtered;
       }
       
-      console.log('✅ Adding AI answer to messages');
       return [...filtered, {
         id: `ai-answer-${Date.now()}`,
         role: 'assistant' as const,
@@ -1025,14 +2286,10 @@ export default function ChatPage() {
     });
   }, []);
 
-  // ============================================
-  // MANUAL REFRESH FUNCTION - USES extractAiAnswer
-  // ============================================
   const refreshPrescriptionStatus = useCallback(async () => {
     if (!prescriptionId || isRefreshing) return;
     
     setIsRefreshing(true);
-    console.log('🔄 Manually refreshing prescription status...');
     
     try {
       const { data, error } = await supabase
@@ -1053,29 +2310,22 @@ export default function ChatPage() {
         .single();
       
       if (!error && data) {
-        console.log('✅ Refresh complete:', data.processing_status, data.processing_progress);
-        console.log('📦 Response data:', data.response_data ? 'present' : 'null');
-        
         setPrescription(data);
         setProcessingStatus(data.processing_status || 'pending');
         setProcessingProgress(data.processing_progress || '');
         
-        // Update suggested questions
         const dbQuestions = safeParseArray(data.suggested_questions);
         if (dbQuestions.length > 0) {
           setSuggestedQuestions(dbQuestions);
         }
         
-        // If completed, extract AI answer and update messages
         if (data.processing_status === 'completed') {
           setShowRefreshHint(false);
           setProcessingStartTime(null);
           await fetchPrescriptionItems();
           
-          // CRITICAL FIX: Use extractAiAnswer helper
           const aiAnswer = extractAiAnswer(data);
           if (aiAnswer) {
-            console.log('📝 Found AI answer via refresh, adding to messages');
             addAiAnswerToMessages(aiAnswer);
           }
         }
@@ -1087,9 +2337,7 @@ export default function ChatPage() {
     }
   }, [prescriptionId, isRefreshing, supabase, fetchPrescriptionItems, addAiAnswerToMessages]);
 
-  // ============================================
-  // ELAPSED TIME TRACKER
-  // ============================================
+  // Timer effects
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
     
@@ -1112,16 +2360,13 @@ export default function ChatPage() {
     return () => clearInterval(intervalId);
   }, [processingStatus, processingStartTime]);
 
-  // ============================================
-  // SHOW REFRESH HINT AFTER 30 SECONDS
-  // ============================================
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
     
     if (processingStatus === 'processing') {
       timeoutId = setTimeout(() => {
         setShowRefreshHint(true);
-      }, 30000); // Show hint after 30 seconds
+      }, 30000);
     } else {
       setShowRefreshHint(false);
     }
@@ -1129,29 +2374,21 @@ export default function ChatPage() {
     return () => clearTimeout(timeoutId);
   }, [processingStatus]);
 
-  // ============================================
-  // AUTO-POLL FALLBACK (every 15 seconds while processing)
-  // ============================================
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
     
     if (processingStatus === 'processing' && prescriptionId) {
       intervalId = setInterval(() => {
-        console.log('⏰ Auto-polling for updates...');
         refreshPrescriptionStatus();
-      }, 15000); // Poll every 15 seconds
+      }, 15000);
     }
     
     return () => clearInterval(intervalId);
   }, [processingStatus, prescriptionId, refreshPrescriptionStatus]);
 
-  // ============================================
-  // SUPABASE REALTIME SUBSCRIPTION - CRITICAL FIX
-  // ============================================
+  // Real-time subscription for prescription updates
   useEffect(() => {
     if (!prescriptionId) return;
-
-    console.log('🔌 Setting up Realtime subscription for prescription:', prescriptionId);
 
     const channel = supabase
       .channel(`prescription-${prescriptionId}`)
@@ -1164,33 +2401,22 @@ export default function ChatPage() {
           filter: `id=eq.${prescriptionId}`
         },
         (payload) => {
-          console.log('📡 Realtime update received:', payload);
-          
           const newData = payload.new as any;
           
           if (newData.processing_status) {
             setProcessingStatus(newData.processing_status);
-            console.log('📊 Processing status:', newData.processing_status);
           }
           
           if (newData.processing_progress) {
             setProcessingProgress(newData.processing_progress);
-            console.log('📈 Processing progress:', newData.processing_progress);
           }
           
-          // ============================================
-          // CRITICAL FIX: Handle completed status
-          // ============================================
           if (newData.processing_status === 'completed') {
-            console.log('✅ Processing complete via Realtime!');
             setShowRefreshHint(false);
             setProcessingStartTime(null);
             
-            // CRITICAL: Use extractAiAnswer helper to get AI answer from response_data
             const aiAnswer = extractAiAnswer(newData);
-            console.log('🔍 Extracted AI answer:', aiAnswer ? `${aiAnswer.substring(0, 100)}...` : 'null');
             
-            // Update prescription state
             setPrescription(prev => ({
               ...prev!,
               ...newData,
@@ -1198,7 +2424,6 @@ export default function ChatPage() {
               status: 'analyzed'
             }));
             
-            // Update suggested questions if present in response_data
             if (newData.response_data) {
               let responseData = newData.response_data;
               if (typeof responseData === 'string') {
@@ -1211,17 +2436,14 @@ export default function ChatPage() {
               }
             }
             
-            // CRITICAL: Add AI answer to messages
             if (aiAnswer) {
               addAiAnswerToMessages(aiAnswer);
             }
             
-            // Fetch prescription items
             fetchPrescriptionItems();
           }
           
           if (newData.processing_status === 'error') {
-            console.log('❌ Processing error via Realtime');
             setShowRefreshHint(false);
             
             let errorMessage = 'There was an error processing your prescription.';
@@ -1241,166 +2463,27 @@ export default function ChatPage() {
                 role: 'assistant' as const,
                 content: errorMessage,
                 timestamp: new Date(),
-                type: 'general' as const
+                type: 'error' as const
               }];
             });
           }
         }
       )
-      .subscribe((status) => {
-        console.log('📡 Realtime subscription status:', status);
-      });
+      .subscribe();
 
     return () => {
-      console.log('🔌 Cleaning up Realtime subscription');
       supabase.removeChannel(channel);
     };
   }, [prescriptionId, supabase, fetchPrescriptionItems, addAiAnswerToMessages]);
 
-  // ============================================
-  // INITIAL DATA FETCH - USES extractAiAnswer
-  // ============================================
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        // Fetch organization
-        const { data: orgData, error: orgError } = await supabase
-          .from('organizations')
-          .select('id, name')
-          .eq('slug', org)
-          .single();
-        
-        if (!orgError && orgData) {
-          setOrgId(orgData.id);
-          setOrgName(orgData.name || org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
-        } else {
-          // Try subdomain field as fallback
-          const { data: orgData2 } = await supabase
-            .from('organizations')
-            .select('id, name')
-            .eq('subdomain', org)
-            .single();
-          
-          if (orgData2) {
-            setOrgId(orgData2.id);
-            setOrgName(orgData2.name || org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
-          } else {
-            setOrgName(org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
-          }
-        }
-
-        if (!prescriptionId) {
-          setLoading(false);
-          return;
-        }
-
-        // Fetch prescription with processing fields
-        const { data: prescriptionData, error: prescriptionError } = await supabase
-          .from('prescriptions')
-          .select(`
-            id, file_url, status, created_at, chief_complaint,
-            patient_name, patient_age, patient_gender,
-            doctor_name, doctor_qualifications, doctor_registration,
-            clinic_name, clinic_address, clinic_contact,
-            prescription_date_extracted, diagnosis,
-            user_question, ai_answer, ai_analysis, ai_summary,
-            precautions, follow_up_instructions,
-            total_medicines, total_tests, document_type,
-            suggested_questions,
-            processing_status, processing_progress, response_data
-          `)
-          .eq('id', prescriptionId)
-          .single();
-
-        if (!prescriptionError && prescriptionData) {
-          console.log('📦 Initial fetch - prescription data:', {
-            processing_status: prescriptionData.processing_status,
-            has_ai_answer: !!prescriptionData.ai_answer,
-            has_response_data: !!prescriptionData.response_data
-          });
-          
-          setPrescription(prescriptionData);
-          setProcessingStatus(prescriptionData.processing_status || 'pending');
-          setProcessingProgress(prescriptionData.processing_progress || '');
-          
-          // Start timer if still processing
-          if (prescriptionData.processing_status === 'processing') {
-            setProcessingStartTime(Date.now());
-          }
-          
-          const dbQuestions = safeParseArray(prescriptionData.suggested_questions);
-          setSuggestedQuestions(dbQuestions.length > 0 ? dbQuestions : defaultQuickQuestions);
-          
-          const initialMessages: Message[] = [];
-          
-          initialMessages.push({
-            id: 'welcome',
-            role: 'assistant',
-            content: `Hello! I'm Dr. Bridge, your AI healthcare assistant. I've analyzed your prescription and I'm here to answer any questions you have about your medicines, dosages, and treatment plan. What would you like to know?`,
-            timestamp: new Date(prescriptionData.created_at),
-            type: 'welcome'
-          });
-          
-          // Check if still processing
-          if (prescriptionData.processing_status === 'processing') {
-            initialMessages.push({
-              id: 'processing',
-              role: 'assistant',
-              content: '⏳ Analyzing your prescription... Please wait.',
-              timestamp: new Date(),
-              type: 'progress'
-            });
-          }
-          
-          // If completed, add user question and AI answer
-          if (prescriptionData.processing_status === 'completed' || prescriptionData.status === 'analyzed') {
-            // Add user question if exists
-            if (prescriptionData.user_question || prescriptionData.chief_complaint) {
-              initialMessages.push({
-                id: 'user-question',
-                role: 'user',
-                content: prescriptionData.user_question || prescriptionData.chief_complaint || '',
-                timestamp: new Date(prescriptionData.created_at),
-                type: 'question'
-              });
-            }
-            
-            // CRITICAL FIX: Use extractAiAnswer helper
-            const aiAnswer = extractAiAnswer(prescriptionData);
-            console.log('📝 Initial fetch - extracted AI answer:', aiAnswer ? 'found' : 'not found');
-            
-            if (aiAnswer) {
-              initialMessages.push({
-                id: 'ai-answer',
-                role: 'assistant',
-                content: aiAnswer,
-                timestamp: new Date(prescriptionData.created_at),
-                type: 'answer'
-              });
-            }
-          }
-          
-          setMessages(initialMessages);
-        }
-
-        await fetchPrescriptionItems();
-
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchData();
-  }, [org, prescriptionId, sessionId, supabase, fetchPrescriptionItems]);
-
-  // ============================================
-  // SEND MESSAGE
-  // ============================================
   const handleSendMessage = async (message?: string) => {
     const messageToSend = message || inputValue.trim();
     if (!messageToSend || sending) return;
+
+    if (!patientId) {
+      alert('No patient selected. Please go to the dashboard first.');
+      return;
+    }
 
     setSending(true);
     setInputValue('');
@@ -1426,8 +2509,6 @@ export default function ChatPage() {
     setMessages(prev => [...prev, loadingMessage]);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-
       const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
         'https://n8n.nhcare.in/webhook/medibridge-chat-v6-test';
 
@@ -1437,7 +2518,8 @@ export default function ChatPage() {
         body: JSON.stringify({
           prescription_id: prescriptionId,
           chat_session_id: sessionId || prescriptionId,
-          user_id: user?.id,
+          patient_id: patientId,
+          user_id: currentUser?.id,
           query: messageToSend,
           chief_complaint: messageToSend,
           channel: 'web',
@@ -1449,7 +2531,6 @@ export default function ChatPage() {
       const result = await response.json();
       
       if (response.status === 202 || result.status === 'processing') {
-        console.log('📤 Processing started, waiting for updates...');
         setProcessingStatus('processing');
         setProcessingStartTime(Date.now());
         setMessages(prev => {
@@ -1498,7 +2579,7 @@ export default function ChatPage() {
           role: 'assistant' as const,
           content: 'Sorry, I encountered an error. Please try again.',
           timestamp: new Date(),
-          type: 'general' as const
+          type: 'error' as const
         }];
       });
     } finally {
@@ -1506,65 +2587,12 @@ export default function ChatPage() {
     }
   };
 
-  // ============================================
-  // CONNECT TO DOCTOR
-  // ============================================
   const handleConnectToDoctor = async () => {
-    if (escalating || escalated) return;
+    if (escalating || escalated || !patientId) return;
     
     setEscalating(true);
     
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      let patientId = null;
-      
-      if (user?.id) {
-        const { data: patientData } = await supabase
-          .from('patients')
-          .select('id')
-          .eq('auth_user_id', user.id)
-          .maybeSingle();
-        
-        if (patientData) {
-          patientId = patientData.id;
-        }
-      }
-      
-      if (!patientId && prescription?.patient_name && orgId) {
-        const { data: prescPatient } = await supabase
-          .from('patients')
-          .select('id')
-          .eq('organization_id', orgId)
-          .ilike('full_name', prescription.patient_name)
-          .maybeSingle();
-        
-        if (prescPatient) {
-          patientId = prescPatient.id;
-        }
-      }
-      
-      if (!patientId && orgId) {
-        const { data: newPatient, error: patientError } = await supabase
-          .from('patients')
-          .insert({
-            organization_id: orgId,
-            full_name: prescription?.patient_name || 'Unknown Patient',
-            auth_user_id: user?.id || null,
-            email: user?.email || null,
-          })
-          .select('id')
-          .single();
-        
-        if (!patientError && newPatient) {
-          patientId = newPatient.id;
-        }
-      }
-      
-      if (!patientId) {
-        throw new Error('Could not find or create patient record');
-      }
-      
       let chatSessionId = null;
       
       if (orgId && patientId) {
@@ -1593,7 +2621,7 @@ export default function ChatPage() {
               prescription_id: prescriptionId || null,
               status: 'escalated',
               channel: 'app',
-              chat_summary: `Patient requested doctor connection. Prescription: ${prescription?.patient_name || 'Unknown'}`
+              chat_summary: `Patient requested doctor connection. Patient: ${patientData?.full_name || 'Unknown'}`
             })
             .select('id')
             .single();
@@ -1614,7 +2642,7 @@ export default function ChatPage() {
             escalation_type: 'doctor_request',
             severity: 'medium',
             status: 'pending',
-            escalation_summary: `Patient ${prescription?.patient_name || 'Unknown'} requested to connect with a doctor regarding their prescription.`,
+            escalation_summary: `Patient ${patientData?.full_name || 'Unknown'} requested to connect with a doctor regarding their prescription.`,
             ai_recommendation: 'Patient has requested direct doctor consultation. Please review the chat history and prescription details.',
           });
       }
@@ -1638,7 +2666,7 @@ export default function ChatPage() {
         role: 'assistant',
         content: '❌ Sorry, there was an error sending your request. Please try again or contact the clinic directly.',
         timestamp: new Date(),
-        type: 'general'
+        type: 'error'
       };
       
       setMessages(prev => [...prev, errorMessage]);
@@ -1647,9 +2675,10 @@ export default function ChatPage() {
     }
   };
 
-  // ============================================
-  // DATA HELPERS
-  // ============================================
+  const goToDashboard = () => {
+    router.push(`/${org}/dashboard`);
+  };
+
   const medicines = prescriptionItems.filter(item => item.item_type === 'medicine');
   const tests = prescriptionItems.filter(item => item.item_type === 'test');
 
@@ -1680,7 +2709,6 @@ export default function ChatPage() {
 
   const getAiSummary = (): string => {
     if (prescription?.ai_summary) return prescription.ai_summary;
-    // CRITICAL: Use extractAiAnswer for getting summary from response_data too
     const aiAnswer = extractAiAnswer(prescription);
     if (aiAnswer) {
       return aiAnswer
@@ -1710,16 +2738,30 @@ export default function ChatPage() {
   };
 
   const isProcessingComplete = processingStatus === 'completed' || prescription?.status === 'analyzed';
+  const isInputDisabled = sending || processingStatus === 'processing' || uploadingFile;
 
   // ============================================
-  // LOADING STATE
+  // RENDER: NO PATIENT FOUND ERROR
+  // ============================================
+  if (noPatientFound) {
+    return (
+      <NoPatientError 
+        orgSlug={org} 
+        isDark={isDark} 
+        onGoToDashboard={goToDashboard} 
+      />
+    );
+  }
+
+  // ============================================
+  // RENDER: LOADING
   // ============================================
   if (loading) {
     return (
       <div className={`fixed inset-0 ${colors.bg} flex items-center justify-center z-[9999]`}>
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className={`${colors.text} text-lg`}>Loading your prescription...</p>
+          <p className={`${colors.text} text-lg`}>Loading...</p>
         </div>
       </div>
     );
@@ -1730,6 +2772,32 @@ export default function ChatPage() {
   // ============================================
   return (
     <div className={`fixed inset-0 ${colors.bg} flex flex-col z-[9999] transition-colors duration-300`}>
+      
+      {/* MODALS */}
+      {showFileModal && (
+        <FileUploadModal
+          onClose={() => setShowFileModal(false)}
+          onFileSelect={handleFileUpload}
+          isDark={isDark}
+          patientName={patientData?.full_name}
+        />
+      )}
+      
+      {showCamera && (
+        <CameraCapture
+          onClose={() => setShowCamera(false)}
+          onCapture={handleCameraCapture}
+          isDark={isDark}
+        />
+      )}
+      
+      {isRecording && (
+        <VoiceRecorder
+          onStop={handleVoiceMessage}
+          onCancel={() => setIsRecording(false)}
+          isDark={isDark}
+        />
+      )}
       
       {/* HEADER */}
       <header className={`${colors.bgSecondary} border-b ${colors.border} flex-shrink-0`}>
@@ -1751,7 +2819,7 @@ export default function ChatPage() {
               )}
             </button>
             <button
-              onClick={() => router.push(`/${org}/dashboard`)}
+              onClick={goToDashboard}
               className="text-cyan-500 hover:text-cyan-400 flex items-center gap-1 text-sm transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -1779,7 +2847,7 @@ export default function ChatPage() {
           </div>
           
           <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
-            {!isProcessingComplete ? (
+            {prescription && !isProcessingComplete ? (
               <div className={`${colors.bgCard} rounded-xl border ${colors.borderLight} p-6 text-center`}>
                 <RefreshCw className="w-10 h-10 text-cyan-400 animate-spin mx-auto mb-4" />
                 <p className={`${colors.text} text-sm font-medium`}>Analyzing prescription...</p>
@@ -1805,7 +2873,7 @@ export default function ChatPage() {
                   {isRefreshing ? 'Checking...' : 'Check Status'}
                 </button>
               </div>
-            ) : (
+            ) : prescription ? (
               <PrescriptionDetails
                 prescription={prescription}
                 medicines={medicines}
@@ -1816,6 +2884,14 @@ export default function ChatPage() {
                 getAiSummary={getAiSummary}
                 isDark={isDark}
               />
+            ) : (
+              <div className={`${colors.bgCard} rounded-xl border ${colors.borderLight} p-6 text-center`}>
+                <Upload className="w-10 h-10 text-cyan-400 mx-auto mb-4" />
+                <p className={`${colors.text} text-sm font-medium`}>No Prescription Yet</p>
+                <p className={`${colors.textSecondary} text-xs mt-2`}>
+                  Upload a prescription to see detailed analysis here
+                </p>
+              </div>
             )}
           </div>
           
@@ -1874,17 +2950,17 @@ export default function ChatPage() {
                   )}
                 </button>
 
-                {prescription?.patient_name && (
+                {patientData && (
                   <div className={`flex items-center gap-2 ${isDark ? 'bg-slate-800/50' : 'bg-gray-100'} pl-2 pr-3 py-1.5 rounded-full`}>
                     <div className="w-7 h-7 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
                       <span className="text-white text-xs font-bold">
-                        {prescription.patient_name.charAt(0).toUpperCase()}
+                        {patientData.full_name.charAt(0).toUpperCase()}
                       </span>
                     </div>
                     <div className="text-left">
-                      <p className={`${colors.text} text-xs font-medium leading-tight`}>{prescription.patient_name}</p>
+                      <p className={`${colors.text} text-xs font-medium leading-tight`}>{patientData.full_name}</p>
                       <p className={`${colors.textSecondary} text-[10px] leading-tight`}>
-                        {prescription.patient_age}{prescription.patient_gender ? ` • ${prescription.patient_gender}` : ''}
+                        Patient
                       </p>
                     </div>
                   </div>
@@ -1897,8 +2973,7 @@ export default function ChatPage() {
           <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
             <div className="max-w-3xl mx-auto space-y-4">
               
-              {/* Processing Status Banner */}
-              {!isProcessingComplete && (
+              {prescription && !isProcessingComplete && (
                 <ProcessingStatus 
                   status={processingStatus} 
                   progress={processingProgress}
@@ -1927,14 +3002,24 @@ export default function ChatPage() {
                     className={`max-w-[80%] ${
                       message.role === 'user'
                         ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-2xl rounded-br-md'
-                        : `${colors.bgMessage} ${colors.text} rounded-2xl rounded-bl-md border ${colors.borderLight}`
+                        : message.type === 'error'
+                          ? `${colors.bgMessage} ${colors.text} rounded-2xl rounded-bl-md border border-red-500/30`
+                          : `${colors.bgMessage} ${colors.text} rounded-2xl rounded-bl-md border ${colors.borderLight}`
                     } px-4 py-3 shadow-lg`}
                   >
                     {message.role === 'user' && message.type === 'question' && (
                       <p className="text-cyan-200 font-semibold text-[10px] uppercase tracking-wide mb-1">Your Question</p>
                     )}
+                    {message.role === 'user' && message.type === 'upload' && (
+                      <p className="text-cyan-200 font-semibold text-[10px] uppercase tracking-wide mb-1">
+                        {message.fileType === 'audio' ? 'Voice Message' : 'File Upload'}
+                      </p>
+                    )}
                     {message.role === 'assistant' && message.type === 'answer' && (
                       <p className="text-cyan-500 font-semibold text-[10px] uppercase tracking-wide mb-2">Answer to Your Question</p>
+                    )}
+                    {message.role === 'assistant' && message.type === 'error' && (
+                      <p className="text-red-400 font-semibold text-[10px] uppercase tracking-wide mb-2">Error</p>
                     )}
                     
                     <div className="text-sm leading-relaxed">
@@ -1983,7 +3068,16 @@ export default function ChatPage() {
 
           {/* Input Area */}
           <div className={`border-t ${colors.border} flex-shrink-0 ${colors.bg}`}>
-            <div className="p-4 pb-2">
+            <ChatInputActions
+              onUploadClick={() => setShowFileModal(true)}
+              onCameraClick={() => setShowCamera(true)}
+              onVoiceClick={() => setIsRecording(true)}
+              isRecording={isRecording}
+              disabled={isInputDisabled}
+              isDark={isDark}
+            />
+            
+            <div className="p-4 pt-2">
               <div className="max-w-3xl mx-auto">
                 <div className="flex gap-3 items-end">
                   <div className="flex-1 relative">
@@ -2001,7 +3095,7 @@ export default function ChatPage() {
                         }
                       }}
                       placeholder="Ask anything about your prescription..."
-                      disabled={sending || processingStatus === 'processing'}
+                      disabled={isInputDisabled}
                       className={`w-full px-4 py-3 ${colors.bgInput} border ${colors.borderInput} rounded-2xl ${colors.text} ${colors.placeholder} focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 disabled:opacity-50 transition-all resize-none text-sm`}
                       rows={1}
                       style={{ minHeight: '48px', maxHeight: '120px' }}
@@ -2009,7 +3103,7 @@ export default function ChatPage() {
                   </div>
                   <button
                     onClick={() => handleSendMessage()}
-                    disabled={sending || !inputValue.trim() || processingStatus === 'processing'}
+                    disabled={sending || !inputValue.trim() || isInputDisabled}
                     className="p-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/40 hover:scale-105 flex-shrink-0"
                   >
                     {sending ? (
@@ -2028,7 +3122,7 @@ export default function ChatPage() {
                   <button
                     key={index}
                     onClick={() => handleSendMessage(question)}
-                    disabled={sending || processingStatus === 'processing'}
+                    disabled={isInputDisabled}
                     className={`flex-shrink-0 px-2.5 py-1 ${colors.cyanBg} hover:bg-cyan-500/20 text-cyan-500 hover:text-cyan-400 text-[11px] rounded-full border ${colors.cyanBorder} hover:border-cyan-400/50 transition-all duration-200 disabled:opacity-50 whitespace-nowrap`}
                   >
                     {question.length > 35 ? question.substring(0, 35) + '...' : question}
@@ -2050,7 +3144,6 @@ export default function ChatPage() {
       <div className="lg:hidden flex-1 overflow-y-auto">
         <div className="p-4 space-y-4">
           
-          {/* Mobile Chat Header */}
           <div className={`${colors.bgCard} rounded-xl p-3 border ${colors.borderLight}`}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
@@ -2065,14 +3158,14 @@ export default function ChatPage() {
                   </p>
                 </div>
               </div>
-              {prescription?.patient_name && (
+              {patientData && (
                 <div className={`flex items-center gap-2 ${isDark ? 'bg-slate-700/50' : 'bg-gray-100'} pl-2 pr-3 py-1.5 rounded-full`}>
                   <div className="w-6 h-6 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
                     <span className="text-white text-[10px] font-bold">
-                      {prescription.patient_name.charAt(0).toUpperCase()}
+                      {patientData.full_name.charAt(0).toUpperCase()}
                     </span>
                   </div>
-                  <p className={`${colors.text} text-xs font-medium`}>{prescription.patient_name.split(' ')[0]}</p>
+                  <p className={`${colors.text} text-xs font-medium`}>{patientData.full_name.split(' ')[0]}</p>
                 </div>
               )}
             </div>
@@ -2107,8 +3200,7 @@ export default function ChatPage() {
             </button>
           </div>
 
-          {/* Mobile Processing Status */}
-          {!isProcessingComplete && (
+          {prescription && !isProcessingComplete && (
             <ProcessingStatus 
               status={processingStatus} 
               progress={processingProgress}
@@ -2120,7 +3212,6 @@ export default function ChatPage() {
             />
           )}
 
-          {/* Mobile Messages */}
           <div className="space-y-3">
             {messages.map((message) => (
               <div
@@ -2139,11 +3230,18 @@ export default function ChatPage() {
                   className={`max-w-[85%] ${
                     message.role === 'user'
                       ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-2xl rounded-br-md'
-                      : `${colors.bgMessage} ${colors.text} rounded-2xl rounded-bl-md border ${colors.borderLight}`
+                      : message.type === 'error'
+                        ? `${colors.bgMessage} ${colors.text} rounded-2xl rounded-bl-md border border-red-500/30`
+                        : `${colors.bgMessage} ${colors.text} rounded-2xl rounded-bl-md border ${colors.borderLight}`
                   } px-3 py-2.5 shadow-lg`}
                 >
                   {message.role === 'user' && message.type === 'question' && (
                     <p className="text-cyan-200 font-semibold text-[9px] uppercase tracking-wide mb-1">Your Question</p>
+                  )}
+                  {message.role === 'user' && message.type === 'upload' && (
+                    <p className="text-cyan-200 font-semibold text-[9px] uppercase tracking-wide mb-1">
+                      {message.fileType === 'audio' ? 'Voice Message' : 'File Upload'}
+                    </p>
                   )}
                   {message.role === 'assistant' && message.type === 'answer' && (
                     <p className="text-cyan-500 font-semibold text-[9px] uppercase tracking-wide mb-1.5">Answer to Your Question</p>
@@ -2187,8 +3285,34 @@ export default function ChatPage() {
             ))}
           </div>
 
-          {/* Mobile Input */}
           <div className={`${isDark ? 'bg-slate-900/80' : 'bg-white'} rounded-xl p-3 border ${colors.borderLight}`}>
+            <div className={`flex items-center gap-1 mb-2 pb-2 border-b ${colors.borderLight}`}>
+              <button
+                onClick={() => setShowFileModal(true)}
+                disabled={isInputDisabled}
+                className={`flex items-center gap-1 px-2 py-1 text-[10px] ${colors.textSecondary} hover:text-cyan-500 ${isDark ? 'hover:bg-slate-700' : 'hover:bg-gray-100'} rounded-lg transition-colors disabled:opacity-50`}
+              >
+                <Paperclip className="w-3.5 h-3.5" />
+                <span>Upload</span>
+              </button>
+              <button
+                onClick={() => setShowCamera(true)}
+                disabled={isInputDisabled}
+                className={`flex items-center gap-1 px-2 py-1 text-[10px] ${colors.textSecondary} hover:text-cyan-500 ${isDark ? 'hover:bg-slate-700' : 'hover:bg-gray-100'} rounded-lg transition-colors disabled:opacity-50`}
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>Camera</span>
+              </button>
+              <button
+                onClick={() => setIsRecording(true)}
+                disabled={isInputDisabled}
+                className={`flex items-center gap-1 px-2 py-1 text-[10px] ${colors.textSecondary} hover:text-cyan-500 ${isDark ? 'hover:bg-slate-700' : 'hover:bg-gray-100'} rounded-lg transition-colors disabled:opacity-50`}
+              >
+                <Mic className="w-3.5 h-3.5" />
+                <span>Voice</span>
+              </button>
+            </div>
+            
             <div className="flex gap-2 items-end">
               <textarea
                 value={inputValue}
@@ -2204,14 +3328,14 @@ export default function ChatPage() {
                   }
                 }}
                 placeholder="Ask anything..."
-                disabled={sending || processingStatus === 'processing'}
+                disabled={isInputDisabled}
                 className={`flex-1 px-3 py-2 ${colors.bgInput} border ${colors.borderInput} rounded-xl ${colors.text} ${colors.placeholder} focus:outline-none focus:border-cyan-500 disabled:opacity-50 resize-none text-sm`}
                 rows={1}
                 style={{ minHeight: '40px', maxHeight: '100px' }}
               />
               <button
                 onClick={() => handleSendMessage()}
-                disabled={sending || !inputValue.trim() || processingStatus === 'processing'}
+                disabled={sending || !inputValue.trim() || isInputDisabled}
                 className="p-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-xl disabled:opacity-50 flex-shrink-0"
               >
                 {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
@@ -2223,7 +3347,7 @@ export default function ChatPage() {
                 <button
                   key={index}
                   onClick={() => handleSendMessage(question)}
-                  disabled={sending || processingStatus === 'processing'}
+                  disabled={isInputDisabled}
                   className={`flex-shrink-0 px-2 py-1 ${colors.cyanBg} text-cyan-500 text-[10px] rounded-full border ${colors.cyanBorder} whitespace-nowrap`}
                 >
                   {question.length > 25 ? question.substring(0, 25) + '...' : question}
@@ -2236,7 +3360,6 @@ export default function ChatPage() {
             </p>
           </div>
 
-          {/* Mobile Prescription Details */}
           <div className={`pt-4 border-t ${colors.border}`}>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center">
@@ -2248,7 +3371,7 @@ export default function ChatPage() {
               </div>
             </div>
             
-            {!isProcessingComplete ? (
+            {prescription && !isProcessingComplete ? (
               <div className={`${colors.bgCard} rounded-xl border ${colors.borderLight} p-6 text-center`}>
                 <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin mx-auto mb-3" />
                 <p className={`${colors.text} text-sm`}>Analyzing prescription...</p>
@@ -2263,7 +3386,7 @@ export default function ChatPage() {
                   {isRefreshing ? 'Checking...' : 'Check Status'}
                 </button>
               </div>
-            ) : (
+            ) : prescription ? (
               <PrescriptionDetails
                 prescription={prescription}
                 medicines={medicines}
@@ -2274,6 +3397,14 @@ export default function ChatPage() {
                 getAiSummary={getAiSummary}
                 isDark={isDark}
               />
+            ) : (
+              <div className={`${colors.bgCard} rounded-xl border ${colors.borderLight} p-6 text-center`}>
+                <Upload className="w-8 h-8 text-cyan-400 mx-auto mb-3" />
+                <p className={`${colors.text} text-sm`}>No Prescription Yet</p>
+                <p className={`${colors.textSecondary} text-xs mt-1`}>
+                  Upload a prescription to see analysis
+                </p>
+              </div>
             )}
 
             <div className="text-center py-4 mt-4">
@@ -2284,7 +3415,6 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Global Styles */}
       <style jsx global>{`
         .scrollbar-hide::-webkit-scrollbar {
           display: none;
