@@ -190,29 +190,37 @@ const getThemeColors = (isDark: boolean) => ({
 });
 
 // ============================================
-// NO PATIENT ERROR COMPONENT
+// ERROR SCREEN COMPONENT (No Patient / Org Not Found)
 // ============================================
 
-interface NoPatientErrorProps {
+interface ErrorScreenProps {
   orgSlug: string;
   isDark: boolean;
   onGoToDashboard: () => void;
+  errorType: 'no_patient' | 'org_not_found';
 }
 
-const NoPatientError = ({ orgSlug, isDark, onGoToDashboard }: NoPatientErrorProps) => {
+const ErrorScreen = ({ orgSlug, isDark, onGoToDashboard, errorType }: ErrorScreenProps) => {
   const colors = getThemeColors(isDark);
+  
+  const isOrgError = errorType === 'org_not_found';
   
   return (
     <div className={`fixed inset-0 ${colors.bg} flex items-center justify-center z-[9999] p-4`}>
       <div className={`${colors.bgCard} rounded-2xl border ${colors.borderLight} p-8 max-w-md w-full text-center shadow-xl`}>
-        <div className="w-16 h-16 bg-gradient-to-br from-orange-500 to-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+        <div className={`w-16 h-16 ${isOrgError ? 'bg-gradient-to-br from-red-500 to-pink-500' : 'bg-gradient-to-br from-orange-500 to-red-500'} rounded-full flex items-center justify-center mx-auto mb-4`}>
           <AlertCircle className="w-8 h-8 text-white" />
         </div>
         
-        <h2 className={`${colors.text} text-xl font-bold mb-2`}>No Patient Selected</h2>
+        <h2 className={`${colors.text} text-xl font-bold mb-2`}>
+          {isOrgError ? 'Organization Not Found' : 'No Patient Selected'}
+        </h2>
         
         <p className={`${colors.textSecondary} text-sm mb-6`}>
-          To upload a prescription or start a chat, please go to the dashboard and select a patient first.
+          {isOrgError 
+            ? `Could not find organization "${orgSlug}". Please check the URL or contact support.`
+            : 'To upload a prescription or start a chat, please go to the dashboard and select a patient first.'
+          }
         </p>
         
         <div className="space-y-3">
@@ -225,7 +233,10 @@ const NoPatientError = ({ orgSlug, isDark, onGoToDashboard }: NoPatientErrorProp
           </button>
           
           <p className={`${colors.textMuted} text-xs`}>
-            You can select an existing patient or add a new family member from the dashboard.
+            {isOrgError 
+              ? 'If you believe this is an error, please contact the clinic.'
+              : 'You can select an existing patient or add a new family member from the dashboard.'
+            }
           </p>
         </div>
       </div>
@@ -1594,7 +1605,8 @@ export default function ChatPage() {
   const [patientId, setPatientId] = useState<string | null>(null);
   const [patientData, setPatientData] = useState<PatientData | null>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [noPatientFound, setNoPatientFound] = useState(false);
+  const [showError, setShowError] = useState(false);
+  const [errorType, setErrorType] = useState<'no_patient' | 'org_not_found'>('no_patient');
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
@@ -1716,25 +1728,67 @@ export default function ChatPage() {
         setCurrentUser(user);
         console.log('✅ User authenticated:', user.id);
 
-        // Step 2: Get organization
+        // Step 2: Get organization (try subdomain first - that's the actual column name)
+        let currentOrgId: string | null = null;
+        let currentOrgName: string = '';
+
+        // Try by subdomain first (this is the actual column in the database)
+        console.log('🔍 Looking up organization by subdomain:', org);
         const { data: orgData, error: orgError } = await supabase
           .from('organizations')
-          .select('id, name')
-          .eq('slug', org)
-          .single();
+          .select('id, name, subdomain')
+          .eq('subdomain', org)
+          .maybeSingle();
 
-        if (orgError || !orgData) {
-          console.error('❌ Organization not found:', org);
-          router.push('/');
+        if (orgData) {
+          currentOrgId = orgData.id;
+          currentOrgName = orgData.name || '';
+          console.log('✅ Organization found by subdomain:', orgData.id, orgData.name);
+        } else {
+          // Fallback: try by slug (in case some orgs have it)
+          console.log('🔄 Trying slug lookup for:', org);
+          const { data: orgData2, error: orgError2 } = await supabase
+            .from('organizations')
+            .select('id, name, subdomain')
+            .eq('slug', org)
+            .maybeSingle();
+
+          if (orgData2) {
+            currentOrgId = orgData2.id;
+            currentOrgName = orgData2.name || '';
+            console.log('✅ Organization found by slug:', orgData2.id, orgData2.name);
+          } else {
+            // Last resort: case-insensitive search
+            console.log('🔄 Trying case-insensitive lookup for:', org);
+            const { data: orgData3 } = await supabase
+              .from('organizations')
+              .select('id, name, subdomain')
+              .ilike('subdomain', org)
+              .maybeSingle();
+
+            if (orgData3) {
+              currentOrgId = orgData3.id;
+              currentOrgName = orgData3.name || '';
+              console.log('✅ Organization found by ilike:', orgData3.id, orgData3.name);
+            }
+          }
+        }
+
+        if (!currentOrgId) {
+          console.error('❌ Organization not found by subdomain or slug:', org);
+          // Don't redirect - just show error and let user go back
+          setErrorType('org_not_found');
+          setShowError(true);
+          setLoading(false);
           return;
         }
         
-        setOrgId(orgData.id);
-        setOrgName(orgData.name || org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
-        console.log('✅ Organization found:', orgData.id, orgData.name);
+        setOrgId(currentOrgId);
+        setOrgName(currentOrgName || org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
+        console.log('✅ Organization loaded:', currentOrgId, currentOrgName);
 
         // Step 3: Find existing patient (NO CREATION!)
-        const existingPatient = await fetchExistingPatient(user.id, orgData.id);
+        const existingPatient = await fetchExistingPatient(user.id, currentOrgId);
         
         if (existingPatient) {
           setPatientId(existingPatient.id);
@@ -1743,7 +1797,8 @@ export default function ChatPage() {
         } else {
           // NO patient found - show error, don't auto-create!
           console.log('⚠️ No patient found - showing error screen');
-          setNoPatientFound(true);
+          setErrorType('no_patient');
+          setShowError(true);
           setLoading(false);
           return;
         }
@@ -2009,12 +2064,21 @@ export default function ChatPage() {
       const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
         'https://n8n.nhcare.in/webhook/medibridge-chat-v6-test';
 
+      // Determine MIME type from file
+      const mimeType = file.type || (
+        file.name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' :
+        file.name?.toLowerCase().endsWith('.png') ? 'image/png' :
+        file.name?.toLowerCase().endsWith('.jpg') || file.name?.toLowerCase().endsWith('.jpeg') ? 'image/jpeg' :
+        'application/octet-stream'
+      );
+      
       const payload = {
         prescription_id: newPrescriptionId,
         patient_id: patientId,
         chat_session_id: newChatSessionId,
         user_id: currentUser?.id,
         file_url: uploadResult.fileUrl,
+        file_type: mimeType,  // CRITICAL: n8n FileType node needs this!
         document_type: type,
         query: question,
         chief_complaint: question,
@@ -2027,6 +2091,7 @@ export default function ChatPage() {
       };
 
       console.log('📤 Sending to n8n:', webhookUrl);
+      console.log('📄 File type detected:', mimeType);
 
       const response = await fetch(webhookUrl, {
         method: 'POST',
@@ -2741,14 +2806,15 @@ export default function ChatPage() {
   const isInputDisabled = sending || processingStatus === 'processing' || uploadingFile;
 
   // ============================================
-  // RENDER: NO PATIENT FOUND ERROR
+  // RENDER: ERROR SCREEN (No Patient / Org Not Found)
   // ============================================
-  if (noPatientFound) {
+  if (showError) {
     return (
-      <NoPatientError 
+      <ErrorScreen 
         orgSlug={org} 
         isDark={isDark} 
-        onGoToDashboard={goToDashboard} 
+        onGoToDashboard={goToDashboard}
+        errorType={errorType}
       />
     );
   }
