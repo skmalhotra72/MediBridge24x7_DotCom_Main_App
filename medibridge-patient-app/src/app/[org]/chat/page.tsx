@@ -12,6 +12,10 @@ import {
   AlertCircle
 } from 'lucide-react';
 
+// Voice Note Components
+import VoiceNoteRecorder from '@/components/VoiceNoteRecorder';
+import VoiceNotePlayer from '@/components/VoiceNotePlayer';
+import AudioResponsePlayer from '@/components/AudioResponsePlayer';
 // ============================================
 // INTERFACES
 // ============================================
@@ -21,10 +25,15 @@ interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
-  type?: 'welcome' | 'question' | 'answer' | 'general' | 'progress' | 'upload' | 'error';
+  type?: 'welcome' | 'question' | 'answer' | 'general' | 'progress' | 'upload' | 'error' | 'voice';
   fileUrl?: string;
   fileType?: string;
   fileName?: string;
+  // Voice note fields
+  audioUrl?: string;
+  audioDuration?: number;
+  transcription?: string;
+  audioResponseUrl?: string;
 }
 
 interface PrescriptionData {
@@ -1022,186 +1031,12 @@ const CameraCapture = ({ onClose, onCapture, isDark }: CameraCaptureProps) => {
 };
 
 // ============================================
-// VOICE RECORDER COMPONENT
-// ============================================
-
-interface VoiceRecorderProps {
-  onStop: (audioBlob: Blob, duration: number) => void;
-  onCancel: () => void;
-  isDark: boolean;
-}
-
-const VoiceRecorder = ({ onStop, onCancel, isDark }: VoiceRecorderProps) => {
-  const [isRecording, setIsRecording] = useState(true);
-  const [duration, setDuration] = useState(0);
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const colors = getThemeColors(isDark);
-
-  useEffect(() => {
-    startRecording();
-    return () => {
-      stopTimer();
-      if (audioUrl) URL.revokeObjectURL(audioUrl);
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, []);
-
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      
-      let mimeType = 'audio/webm';
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'audio/mp4';
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-          mimeType = '';
-        }
-      }
-      
-      const mediaRecorder = mimeType 
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
-        
-      mediaRecorderRef.current = mediaRecorder;
-      chunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          chunksRef.current.push(e.data);
-        }
-      };
-
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType || 'audio/webm' });
-        setAudioBlob(blob);
-        setAudioUrl(URL.createObjectURL(blob));
-      };
-
-      mediaRecorder.start();
-      startTimer();
-      setIsRecording(true);
-    } catch (err) {
-      console.error('Microphone error:', err);
-      alert('Unable to access microphone. Please grant permission.');
-      onCancel();
-    }
-  };
-
-  const startTimer = () => {
-    timerRef.current = setInterval(() => {
-      setDuration(prev => prev + 1);
-    }, 1000);
-  };
-
-  const stopTimer = () => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      stopTimer();
-      setIsRecording(false);
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
-    }
-  };
-
-  const sendRecording = () => {
-    if (audioBlob) {
-      onStop(audioBlob, duration);
-    }
-  };
-
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  return (
-    <div className={`fixed bottom-24 left-4 right-4 ${colors.bgSecondary} rounded-2xl shadow-lg p-4 z-[10000] border ${colors.border}`}>
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          {isRecording && (
-            <span className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
-          )}
-          <span className={`font-mono text-lg ${colors.text}`}>{formatDuration(duration)}</span>
-        </div>
-
-        <div className={`flex-1 h-8 ${isDark ? 'bg-slate-700' : 'bg-gray-100'} rounded-full overflow-hidden flex items-center px-2`}>
-          {isRecording ? (
-            <div className="flex items-center gap-1 w-full justify-center">
-              {[...Array(15)].map((_, i) => (
-                <div
-                  key={i}
-                  className="w-1 bg-cyan-500 rounded-full animate-pulse"
-                  style={{
-                    height: `${Math.random() * 20 + 8}px`,
-                    animationDelay: `${i * 50}ms`
-                  }}
-                />
-              ))}
-            </div>
-          ) : audioUrl ? (
-            <audio src={audioUrl} controls className="w-full h-6" />
-          ) : null}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {isRecording ? (
-            <button
-              onClick={stopRecording}
-              className="p-3 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-            >
-              <Square className="w-5 h-5" />
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={onCancel}
-                className={`p-3 ${isDark ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'} rounded-full transition-colors`}
-              >
-                <X className="w-5 h-5" />
-              </button>
-              <button
-                onClick={sendRecording}
-                className="p-3 bg-cyan-500 text-white rounded-full hover:bg-cyan-600 transition-colors"
-              >
-                <Send className="w-5 h-5" />
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-      
-      <p className={`text-center ${colors.textMuted} text-xs mt-2`}>
-        {isRecording ? 'Recording... Tap stop when done' : 'Review your recording'}
-      </p>
-    </div>
-  );
-};
-
-// ============================================
 // CHAT INPUT ACTIONS COMPONENT
 // ============================================
 
 interface ChatInputActionsProps {
   onUploadClick: () => void;
   onCameraClick: () => void;
-  onVoiceClick: () => void;
-  isRecording: boolean;
   disabled?: boolean;
   isDark: boolean;
 }
@@ -1209,8 +1044,6 @@ interface ChatInputActionsProps {
 const ChatInputActions = ({
   onUploadClick,
   onCameraClick,
-  onVoiceClick,
-  isRecording,
   disabled = false,
   isDark
 }: ChatInputActionsProps) => {
@@ -1236,20 +1069,6 @@ const ChatInputActions = ({
       >
         <Camera className="w-4 h-4" />
         <span className="hidden sm:inline">Camera</span>
-      </button>
-
-      <button
-        onClick={onVoiceClick}
-        disabled={disabled}
-        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-colors disabled:opacity-50 ${
-          isRecording 
-            ? 'text-red-500 bg-red-500/10 hover:bg-red-500/20' 
-            : `${colors.textSecondary} hover:text-cyan-500 ${isDark ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`
-        }`}
-        title={isRecording ? "Stop Recording" : "Voice Message"}
-      >
-        {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-        <span className="hidden sm:inline">{isRecording ? 'Stop' : 'Voice'}</span>
       </button>
     </div>
   );
@@ -1564,7 +1383,7 @@ const PrescriptionDetails = ({
 };
 
 // ============================================
-// MAIN COMPONENT - FIXED VERSION (NO AUTO-CREATE PATIENTS)
+// MAIN COMPONENT - WITH VOICE NOTE INTEGRATION
 // ============================================
 
 export default function ChatPage() {
@@ -1654,7 +1473,7 @@ export default function ChatPage() {
         .select('id, full_name, email, phone, organization_id, auth_user_id')
         .eq('auth_user_id', userId)
         .eq('organization_id', organizationId)
-        .order('created_at', { ascending: true }) // Get the oldest (primary) patient
+        .order('created_at', { ascending: true })
         .limit(1)
         .maybeSingle();
 
@@ -1728,11 +1547,10 @@ export default function ChatPage() {
         setCurrentUser(user);
         console.log('✅ User authenticated:', user.id);
 
-        // Step 2: Get organization (try subdomain first - that's the actual column name)
+        // Step 2: Get organization
         let currentOrgId: string | null = null;
         let currentOrgName: string = '';
 
-        // Try by subdomain first (this is the actual column in the database)
         console.log('🔍 Looking up organization by subdomain:', org);
         const { data: orgData, error: orgError } = await supabase
           .from('organizations')
@@ -1745,7 +1563,6 @@ export default function ChatPage() {
           currentOrgName = orgData.name || '';
           console.log('✅ Organization found by subdomain:', orgData.id, orgData.name);
         } else {
-          // Fallback: try by slug (in case some orgs have it)
           console.log('🔄 Trying slug lookup for:', org);
           const { data: orgData2, error: orgError2 } = await supabase
             .from('organizations')
@@ -1758,7 +1575,6 @@ export default function ChatPage() {
             currentOrgName = orgData2.name || '';
             console.log('✅ Organization found by slug:', orgData2.id, orgData2.name);
           } else {
-            // Last resort: case-insensitive search
             console.log('🔄 Trying case-insensitive lookup for:', org);
             const { data: orgData3 } = await supabase
               .from('organizations')
@@ -1776,7 +1592,6 @@ export default function ChatPage() {
 
         if (!currentOrgId) {
           console.error('❌ Organization not found by subdomain or slug:', org);
-          // Don't redirect - just show error and let user go back
           setErrorType('org_not_found');
           setShowError(true);
           setLoading(false);
@@ -1795,7 +1610,6 @@ export default function ChatPage() {
           setPatientData(existingPatient);
           console.log('✅ Patient loaded:', existingPatient.full_name);
         } else {
-          // NO patient found - show error, don't auto-create!
           console.log('⚠️ No patient found - showing error screen');
           setErrorType('no_patient');
           setShowError(true);
@@ -1807,7 +1621,6 @@ export default function ChatPage() {
         if (prescriptionId) {
           await loadPrescription(prescriptionId);
         } else {
-          // No prescription - just welcome message
           setMessages([{
             id: 'welcome',
             role: 'assistant',
@@ -1909,7 +1722,6 @@ export default function ChatPage() {
         
         setMessages(initialMessages);
         
-        // Load prescription items
         const { data: items } = await supabase
           .from('prescription_items')
           .select('*')
@@ -1973,7 +1785,6 @@ export default function ChatPage() {
   // HANDLE FILE UPLOAD - USES EXISTING PATIENT ONLY
   // ============================================
   const handleFileUpload = async (file: File, type: 'prescription' | 'lab_report', question: string) => {
-    // CRITICAL: Verify we have a patient
     if (!patientId || !patientData) {
       alert('No patient selected. Please go to the dashboard and select a patient first.');
       router.push(`/${org}/dashboard`);
@@ -1983,7 +1794,6 @@ export default function ChatPage() {
     setUploadingFile(true);
     setShowFileModal(false);
     
-    // Show upload started message
     const uploadMessage: Message = {
       id: `upload-${Date.now()}`,
       role: 'user',
@@ -1997,14 +1807,12 @@ export default function ChatPage() {
     try {
       console.log('📤 Starting upload for patient:', patientId, patientData.full_name);
 
-      // Step 1: Upload file to storage
       const uploadResult = await uploadChatFile(file, type);
       if (!uploadResult.success || !uploadResult.fileUrl) {
         throw new Error(uploadResult.error || 'File upload failed');
       }
       console.log('✅ File uploaded:', uploadResult.fileUrl);
 
-      // Update the upload message
       setMessages(prev => prev.map(m => 
         m.id === uploadMessage.id 
           ? { 
@@ -2016,11 +1824,10 @@ export default function ChatPage() {
           : m
       ));
 
-      // Step 2: Create prescription record using EXISTING patient
       const newChatSessionId = sessionId || `chat-upload-${Date.now()}`;
       
       const prescriptionData = {
-        patient_id: patientId,  // ✅ Using existing patient ID
+        patient_id: patientId,
         organization_id: orgId,
         file_url: uploadResult.fileUrl,
         chief_complaint: question,
@@ -2048,7 +1855,6 @@ export default function ChatPage() {
       const newPrescriptionId = newPrescription.id;
       console.log('✅ Prescription created:', newPrescriptionId);
 
-      // Show processing message
       setMessages(prev => [...prev, {
         id: 'processing',
         role: 'assistant' as const,
@@ -2060,11 +1866,9 @@ export default function ChatPage() {
       setProcessingStatus('processing');
       setProcessingStartTime(Date.now());
 
-      // Step 3: Call n8n webhook
       const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
         'https://n8n.nhcare.in/webhook/medibridge-chat-v6-test';
 
-      // Determine MIME type from file
       const mimeType = file.type || (
         file.name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' :
         file.name?.toLowerCase().endsWith('.png') ? 'image/png' :
@@ -2078,7 +1882,7 @@ export default function ChatPage() {
         chat_session_id: newChatSessionId,
         user_id: currentUser?.id,
         file_url: uploadResult.fileUrl,
-        file_type: mimeType,  // CRITICAL: n8n FileType node needs this!
+        file_type: mimeType,
         document_type: type,
         query: question,
         chief_complaint: question,
@@ -2086,7 +1890,7 @@ export default function ChatPage() {
         channel: 'web',
         organization: org,
         organization_id: orgId,
-        is_new_upload: false,  // Prescription already exists
+        is_new_upload: false,
         upload_source: 'chat'
       };
 
@@ -2107,7 +1911,6 @@ export default function ChatPage() {
       } else if (result.error) {
         throw new Error(result.error || result.message || 'Analysis failed');
       } else {
-        // Immediate response
         setMessages(prev => {
           const filtered = prev.filter(m => m.id !== 'processing');
           return [...filtered, {
@@ -2125,7 +1928,6 @@ export default function ChatPage() {
         }
       }
 
-      // Subscribe to real-time updates
       const channel = supabase
         .channel(`prescription-${newPrescriptionId}`)
         .on(
@@ -2211,10 +2013,37 @@ export default function ChatPage() {
   };
 
   // ============================================
-  // HANDLE VOICE MESSAGE
+  // HANDLE VOICE MESSAGE - LOCAL TRANSCRIPTION + N8N TEXT
   // ============================================
   const handleVoiceMessage = async (audioBlob: Blob, duration: number) => {
+    // CRITICAL: Immediate logging to confirm function is called
+    console.log('🎤🎤🎤 handleVoiceMessage CALLED 🎤🎤🎤');
+    console.log('🎤 Audio blob received:', {
+      size: audioBlob?.size,
+      type: audioBlob?.type,
+      duration: duration
+    });
+
+    // Validate audioBlob
+    if (!audioBlob || audioBlob.size === 0) {
+      console.error('❌ Invalid audio blob - empty or null');
+      setMessages(prev => [...prev, {
+        id: `error-${Date.now()}`,
+        role: 'assistant' as const,
+        content: 'Sorry, the voice recording was empty. Please try again and hold the microphone button while speaking.',
+        timestamp: new Date(),
+        type: 'error' as const
+      }]);
+      return;
+    }
+
+    // Check minimum size (very short recordings might be too small)
+    if (audioBlob.size < 1000) {
+      console.warn('⚠️ Audio blob is very small:', audioBlob.size, 'bytes');
+    }
+
     if (!patientId) {
+      console.error('❌ No patient ID available');
       alert('No patient selected. Please go to the dashboard first.');
       return;
     }
@@ -2222,95 +2051,197 @@ export default function ChatPage() {
     setIsRecording(false);
     setUploadingFile(true);
     
+    // Create voice message with pending transcription
+    const voiceMessageId = `voice-${Date.now()}`;
     const voiceMessage: Message = {
-      id: `voice-${Date.now()}`,
+      id: voiceMessageId,
       role: 'user',
-      content: `🎤 Voice message (${Math.floor(duration / 60)}:${(duration % 60).toString().padStart(2, '0')})`,
+      content: '🎤 Voice message...',
       timestamp: new Date(),
-      type: 'upload'
+      type: 'voice',
+      audioDuration: duration
     };
     setMessages(prev => [...prev, voiceMessage]);
     
-    const uploadResult = await uploadChatFile(audioBlob, 'audio');
-    
-    if (!uploadResult.success) {
-      setMessages(prev => {
-        const filtered = prev.filter(m => m.id !== voiceMessage.id);
-        return [...filtered, {
-          id: `error-${Date.now()}`,
-          role: 'assistant' as const,
-          content: '❌ Voice upload failed. Please try again.',
-          timestamp: new Date(),
-          type: 'error' as const
-        }];
-      });
-      setUploadingFile(false);
-      return;
-    }
-    
-    setMessages(prev => [...prev, {
-      id: 'processing',
-      role: 'assistant' as const,
-      content: '⏳ Processing your voice message...',
-      timestamp: new Date(),
-      type: 'progress' as const
-    }]);
-    
     try {
+      // Step 1: Upload audio to Supabase via our API
+      console.log('📤 Step 1: Uploading audio to Supabase...');
+      const uploadFormData = new FormData();
+      uploadFormData.append('audio', audioBlob, 'voice-note.webm');
+      uploadFormData.append('patient_id', patientId);
+      uploadFormData.append('chat_session_id', sessionId || prescriptionId || `chat-${Date.now()}`);
+      
+      const uploadResponse = await fetch('/api/voice/upload', {
+        method: 'POST',
+        body: uploadFormData
+      });
+      
+      console.log('📤 Upload response status:', uploadResponse.status);
+      const uploadResult = await uploadResponse.json();
+      console.log('📤 Upload result:', uploadResult);
+      
+      if (!uploadResult.success) {
+        throw new Error(uploadResult.error || 'Voice upload failed');
+      }
+      
+      console.log('✅ Voice uploaded:', uploadResult.audio_url);
+      
+      // Update message with audio URL
+      setMessages(prev => prev.map(m => 
+        m.id === voiceMessageId 
+          ? { ...m, audioUrl: uploadResult.audio_url }
+          : m
+      ));
+      
+      // Step 2: Show processing message
+      setMessages(prev => [...prev, {
+        id: 'processing',
+        role: 'assistant' as const,
+        content: '🎤 Transcribing your voice message...',
+        timestamp: new Date(),
+        type: 'progress' as const
+      }]);
+      
+      // Step 3: Transcribe locally via our API (bypasses n8n Whisper issues)
+      console.log('🎤 Step 3: Transcribing audio locally...');
+      const transcribeFormData = new FormData();
+      transcribeFormData.append('audio', audioBlob, 'voice-note.webm');
+      
+      const transcribeResponse = await fetch('/api/voice/transcribe', {
+        method: 'POST',
+        body: transcribeFormData
+      });
+      
+      console.log('🎤 Transcribe response status:', transcribeResponse.status);
+      const transcribeResult = await transcribeResponse.json();
+      console.log('🎤 Transcribe result:', transcribeResult);
+      
+      if (!transcribeResult.success || !transcribeResult.text) {
+        // If transcription fails, provide a fallback
+        console.error('❌ Transcription failed:', transcribeResult.error);
+        throw new Error(transcribeResult.error || 'Transcription failed - please try typing your question instead');
+      }
+      
+      const transcription = transcribeResult.text;
+      console.log('✅ Transcription successful:', transcription);
+      
+      // Update voice message with transcription
+      setMessages(prev => prev.map(m => 
+        m.id === voiceMessageId 
+          ? { ...m, content: transcription, transcription: transcription }
+          : m
+      ));
+      
+      // Update processing message
+      setMessages(prev => prev.map(m =>
+        m.id === 'processing'
+          ? { ...m, content: '🤔 Thinking...' }
+          : m
+      ));
+      
+      // Step 4: Send transcribed TEXT to n8n (not audio)
       const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
         'https://n8n.nhcare.in/webhook/medibridge-chat-v6-test';
 
+      console.log('📤 Step 4: Sending text query to n8n:', transcription);
+      console.log('📤 Webhook URL:', webhookUrl);
+      
+      const n8nPayload = {
+        patient_id: patientId,
+        prescription_id: prescriptionId || null,
+        chat_session_id: sessionId || prescriptionId || `chat-${Date.now()}`,
+        user_id: currentUser?.id,
+        query: transcription, // Send TEXT, not audio
+        input_type: 'text', // Treat as text since we transcribed locally
+        document_type: 'follow_up',
+        channel: 'web',
+        organization: org,
+        organization_id: orgId,
+        voice_transcription: transcription, // Include original transcription for context
+        audio_url: uploadResult.audio_url // Include audio URL for reference
+      };
+      
+      console.log('📤 n8n payload:', n8nPayload);
+      
       const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          patient_id: patientId,
-          chat_session_id: sessionId || prescriptionId || `chat-${Date.now()}`,
-          user_id: currentUser?.id,
-          file_url: uploadResult.fileUrl,
-          document_type: 'audio',
-          query: 'Voice message - please transcribe and respond',
-          channel: 'web',
-          organization: org
-        })
+        body: JSON.stringify(n8nPayload)
       });
 
-      const result = await response.json();
+      console.log('📥 n8n response status:', response.status);
       
-      if (result.transcription) {
-        setMessages(prev => prev.map(m => 
-          m.id === voiceMessage.id 
-            ? { ...m, content: `🎤 "${result.transcription}"` }
-            : m
-        ));
+      // Safely parse JSON response from n8n
+      let result: any = {};
+      try {
+        const responseText = await response.text();
+        console.log('📥 n8n raw response length:', responseText?.length);
+        console.log('📥 n8n raw response preview:', responseText?.substring(0, 200));
+        
+        if (responseText && responseText.trim()) {
+          result = JSON.parse(responseText);
+          console.log('📥 n8n parsed result:', result);
+        } else {
+          console.warn('⚠️ n8n returned empty response');
+          result = { 
+            output: 'I received your message. How can I help you?' 
+          };
+        }
+      } catch (parseError) {
+        console.error('❌ Failed to parse n8n response:', parseError);
+        result = { 
+          output: 'I received your message. Please try again.' 
+        };
       }
+      
+      // Step 5: Add AI response
+      const aiResponse = result.output || result.text || result.ai_answer || 
+                         'I received your message. How can I help you?';
+      
+      console.log('✅ AI response received:', aiResponse.substring(0, 100) + '...');
       
       setMessages(prev => {
         const filtered = prev.filter(m => m.id !== 'processing');
         return [...filtered, {
           id: `assistant-${Date.now()}`,
           role: 'assistant' as const,
-          content: result.output || result.text || 
-                   'I received your voice message. How can I help you?',
+          content: aiResponse,
           timestamp: new Date(),
-          type: 'answer' as const
+          type: 'answer' as const,
+          audioResponseUrl: result.audio_response_url
         }];
       });
       
-    } catch (error) {
-      console.error('Error processing voice:', error);
+      // Update suggested questions if provided
+      if (result.suggested_questions) {
+        setSuggestedQuestions(safeParseArray(result.suggested_questions));
+      }
+      
+      console.log('✅ Voice message flow completed successfully!');
+      
+    } catch (error: any) {
+      console.error('❌ Voice processing error:', error);
+      console.error('❌ Error stack:', error.stack);
+      
       setMessages(prev => {
         const filtered = prev.filter(m => m.id !== 'processing');
-        return [...filtered, {
+        // Keep the voice message but mark as error
+        const withError = filtered.map(m => 
+          m.id === voiceMessageId 
+            ? { ...m, content: m.transcription || m.content || '🎤 Voice message (failed to process)' }
+            : m
+        );
+        return [...withError, {
           id: `error-${Date.now()}`,
           role: 'assistant' as const,
-          content: 'Sorry, I could not process your voice message. Please try again or type your question.',
+          content: `Sorry, I could not process your voice message: ${error.message || 'Please try again or type your question.'}`,
           timestamp: new Date(),
           type: 'error' as const
         }];
       });
     } finally {
       setUploadingFile(false);
+      console.log('🎤 handleVoiceMessage completed (finally block)');
     }
   };
 
@@ -2857,14 +2788,6 @@ export default function ChatPage() {
         />
       )}
       
-      {isRecording && (
-        <VoiceRecorder
-          onStop={handleVoiceMessage}
-          onCancel={() => setIsRecording(false)}
-          isDark={isDark}
-        />
-      )}
-      
       {/* HEADER */}
       <header className={`${colors.bgSecondary} border-b ${colors.border} flex-shrink-0`}>
         <div className="px-4 py-3 flex items-center justify-between relative">
@@ -3077,9 +3000,10 @@ export default function ChatPage() {
                       <p className="text-cyan-200 font-semibold text-[10px] uppercase tracking-wide mb-1">Your Question</p>
                     )}
                     {message.role === 'user' && message.type === 'upload' && (
-                      <p className="text-cyan-200 font-semibold text-[10px] uppercase tracking-wide mb-1">
-                        {message.fileType === 'audio' ? 'Voice Message' : 'File Upload'}
-                      </p>
+                      <p className="text-cyan-200 font-semibold text-[10px] uppercase tracking-wide mb-1">File Upload</p>
+                    )}
+                    {message.role === 'user' && message.type === 'voice' && (
+                      <p className="text-cyan-200 font-semibold text-[10px] uppercase tracking-wide mb-1">Voice Message</p>
                     )}
                     {message.role === 'assistant' && message.type === 'answer' && (
                       <p className="text-cyan-500 font-semibold text-[10px] uppercase tracking-wide mb-2">Answer to Your Question</p>
@@ -3089,7 +3013,15 @@ export default function ChatPage() {
                     )}
                     
                     <div className="text-sm leading-relaxed">
-                      {message.type === 'progress' ? (
+                      {/* Voice Note Message */}
+                      {message.type === 'voice' && message.audioUrl ? (
+                        <VoiceNotePlayer
+                          audioUrl={message.audioUrl}
+                          duration={message.audioDuration}
+                          transcription={message.transcription || message.content}
+                          isUserMessage={message.role === 'user'}
+                        />
+                      ) : message.type === 'progress' ? (
                         <div className="flex items-center gap-2">
                           <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
                           <span className={colors.textSecondary}>{message.content}</span>
@@ -3104,7 +3036,13 @@ export default function ChatPage() {
                           <span className={colors.textSecondary + ' text-xs'}>Thinking...</span>
                         </div>
                       ) : message.role === 'assistant' ? (
-                        <RenderMarkdown text={message.content} isDark={isDark} />
+                        <>
+                          <RenderMarkdown text={message.content} isDark={isDark} />
+                          {/* Audio Response Player for AI messages */}
+                          {message.audioResponseUrl && (
+                            <AudioResponsePlayer audioUrl={message.audioResponseUrl} />
+                          )}
+                        </>
                       ) : (
                         <p className="whitespace-pre-wrap">{message.content}</p>
                       )}
@@ -3137,8 +3075,6 @@ export default function ChatPage() {
             <ChatInputActions
               onUploadClick={() => setShowFileModal(true)}
               onCameraClick={() => setShowCamera(true)}
-              onVoiceClick={() => setIsRecording(true)}
-              isRecording={isRecording}
               disabled={isInputDisabled}
               isDark={isDark}
             />
@@ -3167,6 +3103,15 @@ export default function ChatPage() {
                       style={{ minHeight: '48px', maxHeight: '120px' }}
                     />
                   </div>
+                  
+                  {/* Voice Note Recorder - Hold to Record */}
+                  <VoiceNoteRecorder
+                    disabled={isInputDisabled}
+                    onRecordingComplete={handleVoiceMessage}
+                    onRecordingStart={() => setIsRecording(true)}
+                  />
+                  
+                  {/* Send Button */}
                   <button
                     onClick={() => handleSendMessage()}
                     disabled={sending || !inputValue.trim() || isInputDisabled}
@@ -3199,7 +3144,7 @@ export default function ChatPage() {
 
             <div className="pb-3">
               <p className={`text-center ${colors.textMuted} text-xs`}>
-                Press Enter to send • Shift+Enter for new line
+                Press Enter to send • Shift+Enter for new line • Hold mic to record
               </p>
             </div>
           </div>
@@ -3305,16 +3250,25 @@ export default function ChatPage() {
                     <p className="text-cyan-200 font-semibold text-[9px] uppercase tracking-wide mb-1">Your Question</p>
                   )}
                   {message.role === 'user' && message.type === 'upload' && (
-                    <p className="text-cyan-200 font-semibold text-[9px] uppercase tracking-wide mb-1">
-                      {message.fileType === 'audio' ? 'Voice Message' : 'File Upload'}
-                    </p>
+                    <p className="text-cyan-200 font-semibold text-[9px] uppercase tracking-wide mb-1">File Upload</p>
+                  )}
+                  {message.role === 'user' && message.type === 'voice' && (
+                    <p className="text-cyan-200 font-semibold text-[9px] uppercase tracking-wide mb-1">Voice Message</p>
                   )}
                   {message.role === 'assistant' && message.type === 'answer' && (
                     <p className="text-cyan-500 font-semibold text-[9px] uppercase tracking-wide mb-1.5">Answer to Your Question</p>
                   )}
                   
                   <div className="text-sm leading-relaxed">
-                    {message.type === 'progress' ? (
+                    {/* Voice Note Message */}
+                    {message.type === 'voice' && message.audioUrl ? (
+                      <VoiceNotePlayer
+                        audioUrl={message.audioUrl}
+                        duration={message.audioDuration}
+                        transcription={message.transcription || message.content}
+                        isUserMessage={message.role === 'user'}
+                      />
+                    ) : message.type === 'progress' ? (
                       <div className="flex items-center gap-2">
                         <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
                         <span className={colors.textSecondary}>{message.content}</span>
@@ -3329,7 +3283,12 @@ export default function ChatPage() {
                         <span className={colors.textSecondary + ' text-xs'}>Thinking...</span>
                       </div>
                     ) : message.role === 'assistant' ? (
-                      <RenderMarkdown text={message.content} isDark={isDark} />
+                      <>
+                        <RenderMarkdown text={message.content} isDark={isDark} />
+                        {message.audioResponseUrl && (
+                          <AudioResponsePlayer audioUrl={message.audioResponseUrl} />
+                        )}
+                      </>
                     ) : (
                       <p className="whitespace-pre-wrap">{message.content}</p>
                     )}
@@ -3369,14 +3328,6 @@ export default function ChatPage() {
                 <Camera className="w-3.5 h-3.5" />
                 <span>Camera</span>
               </button>
-              <button
-                onClick={() => setIsRecording(true)}
-                disabled={isInputDisabled}
-                className={`flex items-center gap-1 px-2 py-1 text-[10px] ${colors.textSecondary} hover:text-cyan-500 ${isDark ? 'hover:bg-slate-700' : 'hover:bg-gray-100'} rounded-lg transition-colors disabled:opacity-50`}
-              >
-                <Mic className="w-3.5 h-3.5" />
-                <span>Voice</span>
-              </button>
             </div>
             
             <div className="flex gap-2 items-end">
@@ -3399,6 +3350,14 @@ export default function ChatPage() {
                 rows={1}
                 style={{ minHeight: '40px', maxHeight: '100px' }}
               />
+              
+              {/* Voice Note Recorder for Mobile */}
+              <VoiceNoteRecorder
+                disabled={isInputDisabled}
+                onRecordingComplete={handleVoiceMessage}
+                onRecordingStart={() => setIsRecording(true)}
+              />
+              
               <button
                 onClick={() => handleSendMessage()}
                 disabled={sending || !inputValue.trim() || isInputDisabled}
@@ -3422,7 +3381,7 @@ export default function ChatPage() {
             </div>
             
             <p className={`text-center ${colors.textMuted} text-[10px] mt-2`}>
-              Press Enter to send • Shift+Enter for new line
+              Press Enter to send • Hold mic to record
             </p>
           </div>
 
