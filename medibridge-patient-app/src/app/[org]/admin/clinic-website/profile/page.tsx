@@ -175,16 +175,21 @@ export default function ProfileEditorPage() {
   };
 
   const updateWorkingHours = (day: string, field: 'open' | 'close' | 'closed', value: string | boolean) => {
-    setProfile(prev => ({
-      ...prev,
-      working_hours: {
-        ...prev.working_hours,
-        [day]: {
-          ...prev.working_hours?.[day],
-          [field]: value,
-        },
-      },
-    }));
+    setProfile(prev => {
+      const currentDayHours = prev.working_hours?.[day] || { open: '09:00', close: '18:00', closed: false };
+      return {
+        ...prev,
+        working_hours: {
+          ...prev.working_hours,
+          [day]: {
+            open: currentDayHours.open || '09:00',
+            close: currentDayHours.close || '18:00',
+            closed: currentDayHours.closed || false,
+            [field]: value,
+          },
+        } as WorkingHours,
+      };
+    });
   };
 
   if (loading) {
