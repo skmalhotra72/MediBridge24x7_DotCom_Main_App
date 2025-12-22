@@ -5,32 +5,43 @@ import type { NextRequest } from 'next/server'
 const SUBDOMAIN_MAP: Record<string, string> = {
   'cgh': 'city-general-hospital',
   'demo-clinic': 'demo-clinic',
+  // Add more clinics as needed
 }
 
 export function middleware(request: NextRequest) {
   const url = request.nextUrl.clone()
   const hostname = request.headers.get('host') || ''
+  const pathname = url.pathname
   
-  if (url.pathname.startsWith('/clinic/') || 
-      url.pathname.startsWith('/api/') ||
-      url.pathname.startsWith('/_next/')) {
+  // Skip static files, API routes, and Next.js internals
+  if (
+    pathname.startsWith('/_next/') ||
+    pathname.startsWith('/api/') ||
+    pathname.match(/\.(ico|png|jpg|jpeg|gif|svg|css|js|woff|woff2)$/)
+  ) {
     return NextResponse.next()
   }
   
+  // Skip if already on a clinic page
+  if (pathname.startsWith('/clinic/')) {
+    return NextResponse.next()
+  }
+  
+  // Extract subdomain from hostname
   let subdomain: string | null = null
   
+  // Production: subdomain.medibridge24x7.com
   if (hostname.includes('medibridge24x7.com')) {
     const parts = hostname.split('.')
     if (parts.length >= 3) {
       const potentialSubdomain = parts[0].toLowerCase()
-      if (potentialSubdomain !== 'www' && 
-          potentialSubdomain !== 'patients' &&
-          potentialSubdomain !== 'medibridge24x7') {
+      if (!['www', 'patients', 'admin', 'api', 'medibridge24x7'].includes(potentialSubdomain)) {
         subdomain = potentialSubdomain
       }
     }
   }
   
+  // Development: subdomain.localhost:3000
   if (hostname.includes('localhost')) {
     const hostWithoutPort = hostname.split(':')[0]
     const parts = hostWithoutPort.split('.')
@@ -39,18 +50,11 @@ export function middleware(request: NextRequest) {
     }
   }
   
+  // If we have a matching subdomain, rewrite to clinic page
   if (subdomain && SUBDOMAIN_MAP[subdomain]) {
     const clinicSlug = SUBDOMAIN_MAP[subdomain]
-    
-    if (url.pathname === '/' || url.pathname === '') {
-      url.pathname = `/clinic/${clinicSlug}`
-      return NextResponse.rewrite(url)
-    }
-    
-    if (!url.pathname.includes('.')) {
-      url.pathname = `/clinic/${clinicSlug}`
-      return NextResponse.rewrite(url)
-    }
+    url.pathname = `/clinic/${clinicSlug}`
+    return NextResponse.rewrite(url)
   }
   
   return NextResponse.next()
@@ -58,6 +62,6 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 }
