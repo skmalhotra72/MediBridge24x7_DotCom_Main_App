@@ -1,48 +1,35 @@
-﻿import { notFound } from 'next/navigation';
+﻿import { Metadata } from 'next';
 import { createSupabaseServer } from '@/lib/supabase/server';
 
-interface OrgLayoutProps {
+interface LayoutProps {
   children: React.ReactNode;
   params: Promise<{ org: string }>;
 }
 
-export default async function OrgLayout({ 
-  children, 
-  params 
-}: OrgLayoutProps) {
+export async function generateMetadata({ params }: LayoutProps): Promise<Metadata> {
   const { org } = await params;
   const supabase = await createSupabaseServer();
 
+  // Get organization name for title
   const { data: organization } = await supabase
     .from('organizations')
-    .select('*')
-    .eq('subdomain', org)
-    .eq('status', 'active')
+    .select('name')
+    .eq('slug', org)
     .single();
 
-  if (!organization) {
-    notFound();
-  }
+  const orgName = organization?.name || org
+    .split('-')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <h1 className="text-2xl font-bold text-primary-600">
-            {organization.name}
-          </h1>
-        </div>
-      </header>
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {children}
-      </main>
-      <footer className="bg-white border-t mt-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <p className="text-center text-sm text-gray-500">
-            Powered by MediBridge24x7
-          </p>
-        </div>
-      </footer>
-    </div>
-  );
+  return {
+    title: `${orgName} | MediBridge Patient Portal`,
+    description: `AI-powered healthcare companion for ${orgName}. Get instant prescription analysis, medicine information, and personalized health guidance.`,
+  };
+}
+
+export default async function OrgLayout({ children }: LayoutProps) {
+  // CRITICAL: No wrapper elements, no headers - pages handle their own full-screen layouts
+  // This prevents the double header issue
+  return children;
 }

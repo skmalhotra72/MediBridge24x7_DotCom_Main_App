@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { ArrowRight, FileText, FlaskConical, MessageCircle, Mic, Upload, Camera, X, Check, Loader2, User, Sparkles, LogOut } from 'lucide-react';
@@ -46,24 +46,175 @@ interface Stats {
 }
 
 // ============================================================
+// THEME SYSTEM - Dynamic colors based on clinic_profiles
+// ============================================================
+
+// Theme preset definitions
+const THEME_PRESETS = {
+  cyan: {
+    name: 'cyan',
+    primary: {
+      gradient: 'from-cyan-500 to-blue-600',
+      gradientHover: 'from-cyan-400 to-blue-500',
+      bg: 'bg-cyan-500',
+      bgLight: 'bg-cyan-500/20',
+      bgLighter: 'bg-cyan-500/10',
+      border: 'border-cyan-500/30',
+      borderHover: 'border-cyan-400/60',
+      text: 'text-cyan-400',
+      textLight: 'text-cyan-300',
+      shadow: 'shadow-cyan-500/20',
+      shadowButton: 'shadow-cyan-500/25',
+      ring: 'focus:ring-cyan-500/50 focus:border-cyan-500',
+    },
+    badge: {
+      bg: 'bg-cyan-500/20',
+      text: 'text-cyan-400',
+    }
+  },
+  purple: {
+    name: 'purple',
+    primary: {
+      gradient: 'from-purple-500 to-violet-600',
+      gradientHover: 'from-purple-400 to-violet-500',
+      bg: 'bg-purple-500',
+      bgLight: 'bg-purple-500/20',
+      bgLighter: 'bg-purple-500/10',
+      border: 'border-purple-500/30',
+      borderHover: 'border-purple-400/60',
+      text: 'text-purple-400',
+      textLight: 'text-purple-300',
+      shadow: 'shadow-purple-500/20',
+      shadowButton: 'shadow-purple-500/25',
+      ring: 'focus:ring-purple-500/50 focus:border-purple-500',
+    },
+    badge: {
+      bg: 'bg-purple-500/20',
+      text: 'text-purple-400',
+    }
+  },
+  emerald: {
+    name: 'emerald',
+    primary: {
+      gradient: 'from-emerald-500 to-teal-600',
+      gradientHover: 'from-emerald-400 to-teal-500',
+      bg: 'bg-emerald-500',
+      bgLight: 'bg-emerald-500/20',
+      bgLighter: 'bg-emerald-500/10',
+      border: 'border-emerald-500/30',
+      borderHover: 'border-emerald-400/60',
+      text: 'text-emerald-400',
+      textLight: 'text-emerald-300',
+      shadow: 'shadow-emerald-500/20',
+      shadowButton: 'shadow-emerald-500/25',
+      ring: 'focus:ring-emerald-500/50 focus:border-emerald-500',
+    },
+    badge: {
+      bg: 'bg-emerald-500/20',
+      text: 'text-emerald-400',
+    }
+  },
+  blue: {
+    name: 'blue',
+    primary: {
+      gradient: 'from-blue-500 to-indigo-600',
+      gradientHover: 'from-blue-400 to-indigo-500',
+      bg: 'bg-blue-500',
+      bgLight: 'bg-blue-500/20',
+      bgLighter: 'bg-blue-500/10',
+      border: 'border-blue-500/30',
+      borderHover: 'border-blue-400/60',
+      text: 'text-blue-400',
+      textLight: 'text-blue-300',
+      shadow: 'shadow-blue-500/20',
+      shadowButton: 'shadow-blue-500/25',
+      ring: 'focus:ring-blue-500/50 focus:border-blue-500',
+    },
+    badge: {
+      bg: 'bg-blue-500/20',
+      text: 'text-blue-400',
+    }
+  },
+  rose: {
+    name: 'rose',
+    primary: {
+      gradient: 'from-rose-500 to-pink-600',
+      gradientHover: 'from-rose-400 to-pink-500',
+      bg: 'bg-rose-500',
+      bgLight: 'bg-rose-500/20',
+      bgLighter: 'bg-rose-500/10',
+      border: 'border-rose-500/30',
+      borderHover: 'border-rose-400/60',
+      text: 'text-rose-400',
+      textLight: 'text-rose-300',
+      shadow: 'shadow-rose-500/20',
+      shadowButton: 'shadow-rose-500/25',
+      ring: 'focus:ring-rose-500/50 focus:border-rose-500',
+    },
+    badge: {
+      bg: 'bg-rose-500/20',
+      text: 'text-rose-400',
+    }
+  }
+};
+
+type ThemePreset = typeof THEME_PRESETS.cyan;
+
+// Function to detect theme from custom_colors
+function getThemeFromColors(customColors: any): ThemePreset {
+  if (!customColors) return THEME_PRESETS.cyan; // Default theme
+  
+  const primary = customColors.primary?.toLowerCase() || '';
+  
+  // Match based on primary color hex
+  if (primary.includes('7c3aed') || primary.includes('8b5cf6') || primary.includes('a855f7')) {
+    return THEME_PRESETS.purple;
+  }
+  if (primary.includes('06b6d4') || primary.includes('22d3ee') || primary.includes('0ea5e9')) {
+    return THEME_PRESETS.cyan;
+  }
+  if (primary.includes('10b981') || primary.includes('34d399') || primary.includes('14b8a6')) {
+    return THEME_PRESETS.emerald;
+  }
+  if (primary.includes('3b82f6') || primary.includes('6366f1') || primary.includes('818cf8')) {
+    return THEME_PRESETS.blue;
+  }
+  if (primary.includes('f43f5e') || primary.includes('ec4899') || primary.includes('fb7185')) {
+    return THEME_PRESETS.rose;
+  }
+  
+  // Check for theme name in customColors
+  if (customColors.themeName) {
+    const themeName = customColors.themeName.toLowerCase();
+    if (themeName in THEME_PRESETS) {
+      return THEME_PRESETS[themeName as keyof typeof THEME_PRESETS];
+    }
+  }
+  
+  return THEME_PRESETS.cyan; // Default fallback
+}
+
+// ============================================================
 // SERVICE CARDS COMPONENT
 // ============================================================
 
 const ServiceCards = ({ 
   onPrescriptionClick, 
   onLabReportClick, 
-  onChatClick 
+  onChatClick,
+  theme
 }: {
   onPrescriptionClick: () => void;
   onLabReportClick: () => void;
   onChatClick: () => void;
+  theme: ThemePreset;
 }) => {
   return (
     <div className="bg-slate-800/50 rounded-2xl p-6 backdrop-blur-sm">
-      {/* Badge */}
-      <div className="inline-flex items-center gap-2 bg-cyan-500/20 text-cyan-400 px-3 py-1 rounded-full text-xs font-medium mb-4">
-        <span className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></span>
-        AI Ready • 8+ Languages
+      {/* Badge - Uses theme color */}
+      <div className={`inline-flex items-center gap-2 ${theme.badge.bg} ${theme.badge.text} px-3 py-1 rounded-full text-xs font-medium mb-4`}>
+        <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+        AI Ready • 9+ Languages
       </div>
       
       <h2 className="text-white text-xl font-bold mb-2">How can we help you today?</h2>
@@ -71,30 +222,30 @@ const ServiceCards = ({
       
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         
-        {/* Doctor's Prescription - Sky Blue */}
+        {/* Doctor's Prescription - Uses theme color */}
         <button
           onClick={onPrescriptionClick}
-          className="group relative bg-gradient-to-br from-cyan-500/10 to-blue-500/10 
-                     border border-cyan-500/30 hover:border-cyan-400/60
+          className={`group relative bg-gradient-to-br ${theme.primary.bgLighter} 
+                     border ${theme.primary.border} hover:${theme.primary.borderHover}
                      rounded-xl p-5 text-left transition-all duration-300
-                     hover:shadow-lg hover:shadow-cyan-500/20 hover:scale-[1.02]"
+                     hover:shadow-lg ${theme.primary.shadow} hover:scale-[1.02]`}
         >
-          <div className="w-12 h-12 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-xl 
+          <div className={`w-12 h-12 bg-gradient-to-br ${theme.primary.gradient} rounded-xl 
                           flex items-center justify-center mb-4 
-                          group-hover:scale-110 transition-transform duration-300">
+                          group-hover:scale-110 transition-transform duration-300`}>
             <FileText className="w-6 h-6 text-white" />
           </div>
-          <h3 className="text-cyan-400 font-semibold text-base mb-2">Doctor's Prescription</h3>
+          <h3 className={`${theme.primary.text} font-semibold text-base mb-2`}>Doctor's Prescription</h3>
           <p className="text-slate-400 text-xs mb-4 leading-relaxed">
             Upload your prescription for medicine analysis, dosage explanations, and precautions
           </p>
-          <span className="inline-flex items-center text-cyan-400 text-sm font-medium group-hover:gap-2 transition-all">
+          <span className={`inline-flex items-center ${theme.primary.text} text-sm font-medium group-hover:gap-2 transition-all`}>
             Get Started 
             <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
           </span>
         </button>
 
-        {/* Lab Report - Orange */}
+        {/* Lab Report - Orange (Fixed) */}
         <button
           onClick={onLabReportClick}
           className="group relative bg-gradient-to-br from-orange-500/10 to-amber-500/10 
@@ -117,7 +268,7 @@ const ServiceCards = ({
           </span>
         </button>
 
-        {/* Chat Only - Neon Green */}
+        {/* Chat Only - Emerald Green (Fixed) */}
         <button
           onClick={onChatClick}
           className="group relative bg-gradient-to-br from-emerald-500/10 to-green-500/10 
@@ -140,19 +291,19 @@ const ServiceCards = ({
           </span>
         </button>
 
-        {/* Voice Chat - Purple (Coming Soon) */}
-        <div className="group relative bg-gradient-to-br from-purple-500/5 to-violet-500/5 
-                        border border-purple-500/20 rounded-xl p-5 text-left opacity-60">
+        {/* Voice Chat - Gray (Coming Soon - Fixed) */}
+        <div className="group relative bg-gradient-to-br from-slate-500/5 to-slate-600/5 
+                        border border-slate-500/20 rounded-xl p-5 text-left opacity-60">
           <div className="absolute top-3 right-3">
-            <span className="bg-purple-500/20 text-purple-400 text-[10px] px-2 py-0.5 rounded-full font-medium">
+            <span className="bg-slate-500/20 text-slate-400 text-[10px] px-2 py-0.5 rounded-full font-medium">
               Coming Soon
             </span>
           </div>
-          <div className="w-12 h-12 bg-gradient-to-br from-purple-400/50 to-violet-500/50 rounded-xl 
+          <div className="w-12 h-12 bg-gradient-to-br from-slate-400/50 to-slate-500/50 rounded-xl 
                           flex items-center justify-center mb-4">
             <Mic className="w-6 h-6 text-white/70" />
           </div>
-          <h3 className="text-purple-400/70 font-semibold text-base mb-2">Voice Chat</h3>
+          <h3 className="text-slate-400/70 font-semibold text-base mb-2">Voice Chat</h3>
           <p className="text-slate-500 text-xs mb-4 leading-relaxed">
             Speak your questions and get audio responses
           </p>
@@ -173,9 +324,10 @@ interface UploadModalProps {
   isUploading: boolean;
   type: 'prescription' | 'lab';
   selectedPatient: Patient | null;
+  theme: ThemePreset;
 }
 
-const UploadModal = ({ isOpen, onClose, onSubmit, isUploading, type, selectedPatient }: UploadModalProps) => {
+const UploadModal = ({ isOpen, onClose, onSubmit, isUploading, type, selectedPatient, theme }: UploadModalProps) => {
   const [file, setFile] = useState<File | null>(null);
   const [question, setQuestion] = useState('');
   const [dragActive, setDragActive] = useState(false);
@@ -193,21 +345,22 @@ const UploadModal = ({ isOpen, onClose, onSubmit, isUploading, type, selectedPat
   if (!isOpen) return null;
 
   const isPrescription = type === 'prescription';
-  const themeColor = isPrescription ? 'cyan' : 'orange';
-  const gradientFrom = isPrescription ? 'from-cyan-400' : 'from-orange-400';
-  const gradientTo = isPrescription ? 'to-blue-500' : 'to-amber-500';
-  const borderColor = isPrescription ? 'border-cyan-500/30' : 'border-orange-500/30';
-  const shadowColor = isPrescription ? 'shadow-cyan-500/10' : 'shadow-orange-500/10';
+  
+  // Use theme colors for prescription, fixed orange for lab
+  const gradientFrom = isPrescription ? theme.primary.gradient.split(' ')[0] : 'from-orange-400';
+  const gradientTo = isPrescription ? theme.primary.gradient.split(' ')[1] : 'to-amber-500';
+  const borderColor = isPrescription ? theme.primary.border : 'border-orange-500/30';
+  const shadowColor = isPrescription ? theme.primary.shadow : 'shadow-orange-500/10';
   const headerGradient = isPrescription 
-    ? 'from-cyan-500/20 to-blue-500/20' 
+    ? `${theme.primary.bgLighter.replace('bg-', 'from-').replace('/10', '/20')} to-transparent` 
     : 'from-orange-500/20 to-amber-500/20';
-  const headerBorder = isPrescription ? 'border-cyan-500/20' : 'border-orange-500/20';
-  const textColor = isPrescription ? 'text-cyan-300' : 'text-orange-300';
-  const iconBg = isPrescription ? 'bg-cyan-500/20' : 'bg-orange-500/20';
-  const iconColor = isPrescription ? 'text-cyan-400' : 'text-orange-400';
-  const focusRing = isPrescription ? 'focus:ring-cyan-500/50 focus:border-cyan-500' : 'focus:ring-orange-500/50 focus:border-orange-500';
+  const headerBorder = isPrescription ? theme.primary.border.replace('/30', '/20') : 'border-orange-500/20';
+  const textColor = isPrescription ? theme.primary.textLight : 'text-orange-300';
+  const iconBg = isPrescription ? theme.primary.bgLight : 'bg-orange-500/20';
+  const iconColor = isPrescription ? theme.primary.text : 'text-orange-400';
+  const focusRing = isPrescription ? theme.primary.ring : 'focus:ring-orange-500/50 focus:border-orange-500';
   const buttonGradient = isPrescription 
-    ? 'from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-cyan-500/25' 
+    ? `${theme.primary.gradient} hover:${theme.primary.gradientHover} ${theme.primary.shadowButton}` 
     : 'from-orange-500 to-amber-600 hover:from-orange-400 hover:to-amber-500 shadow-orange-500/25';
 
   const handleDrag = (e: React.DragEvent) => {
@@ -251,7 +404,7 @@ const UploadModal = ({ isOpen, onClose, onSubmit, isUploading, type, selectedPat
         <div className={`bg-gradient-to-r ${headerGradient} px-6 py-4 rounded-t-2xl border-b ${headerBorder}`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 bg-gradient-to-br ${gradientFrom} ${gradientTo} rounded-xl flex items-center justify-center`}>
+              <div className={`w-10 h-10 bg-gradient-to-br ${isPrescription ? theme.primary.gradient : 'from-orange-400 to-amber-500'} rounded-xl flex items-center justify-center`}>
                 {isPrescription ? (
                   <FileText className="w-5 h-5 text-white" />
                 ) : (
@@ -279,15 +432,15 @@ const UploadModal = ({ isOpen, onClose, onSubmit, isUploading, type, selectedPat
         {/* Selected Patient Badge */}
         {selectedPatient && (
           <div className="px-6 pt-4">
-            <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/30 rounded-lg px-3 py-2">
-              <User className="w-4 h-4 text-blue-400" />
-              <span className="text-blue-300 text-sm">Patient:</span>
+            <div className={`flex items-center gap-2 ${theme.primary.bgLighter} border ${theme.primary.border} rounded-lg px-3 py-2`}>
+              <User className={`w-4 h-4 ${theme.primary.text}`} />
+              <span className={`${theme.primary.textLight} text-sm`}>Patient:</span>
               <span className="text-white text-sm font-medium">{selectedPatient.full_name}</span>
               {selectedPatient.gender && (
-                <span className="text-blue-400 text-xs">({selectedPatient.gender})</span>
+                <span className={`${theme.primary.text} text-xs`}>({selectedPatient.gender})</span>
               )}
               {selectedPatient.age && (
-                <span className="text-blue-400 text-xs">{selectedPatient.age}Y</span>
+                <span className={`${theme.primary.text} text-xs`}>{selectedPatient.age}Y</span>
               )}
             </div>
           </div>
@@ -304,10 +457,10 @@ const UploadModal = ({ isOpen, onClose, onSubmit, isUploading, type, selectedPat
             onDrop={handleDrop}
             className={`relative border-2 border-dashed rounded-xl p-6 text-center transition-all duration-300
                         ${dragActive 
-                          ? `border-${themeColor}-400 bg-${themeColor}-500/10` 
+                          ? `${isPrescription ? theme.primary.border.replace('/30', '') : 'border-orange-400'} ${isPrescription ? theme.primary.bgLighter : 'bg-orange-500/10'}` 
                           : file 
                             ? 'border-green-400 bg-green-500/10' 
-                            : `border-slate-600 hover:border-${themeColor}-400/50 bg-slate-800/50`
+                            : `border-slate-600 hover:${isPrescription ? theme.primary.border.replace('/30', '/50') : 'border-orange-400/50'} bg-slate-800/50`
                         }`}
           >
             <input
@@ -438,12 +591,15 @@ export default function DashboardPage() {
   const [userId, setUserId] = useState('');
   const [userName, setUserName] = useState('');
   const [loading, setLoading] = useState(true);
+  
+  // Theme state - loaded from database
+  const [theme, setTheme] = useState<ThemePreset>(THEME_PRESETS.cyan);
 
   // Fetch data on mount
   useEffect(() => {
     async function fetchData() {
       try {
-        // Get organization
+        // Get organization with clinic_profiles for theme
         const { data: orgData } = await supabase
           .from('organizations')
           .select('id, name')
@@ -453,6 +609,23 @@ export default function DashboardPage() {
         if (orgData) {
           setOrgName(orgData.name);
           setOrgId(orgData.id);
+          
+          // Fetch clinic_profiles for custom colors/theme
+          const { data: clinicProfile } = await supabase
+            .from('clinic_profiles')
+            .select('custom_colors')
+            .eq('organization_id', orgData.id)
+            .single();
+          
+          if (clinicProfile?.custom_colors) {
+            const detectedTheme = getThemeFromColors(clinicProfile.custom_colors);
+            setTheme(detectedTheme);
+            console.log('Theme loaded:', detectedTheme.name, 'for org:', org);
+          } else {
+            // Default to cyan if no custom colors
+            setTheme(THEME_PRESETS.cyan);
+            console.log('No custom colors, using default cyan theme for:', org);
+          }
         }
 
         // Get user
@@ -464,7 +637,7 @@ export default function DashboardPage() {
         setUserId(user.id);
         setUserName(user.user_metadata?.name || user.email?.split('@')[0] || 'User');
 
-        // FIXED: Auto-load first patient (no relationship filter, use maybeSingle)
+        // Auto-load first patient
         const { data: firstPatient } = await supabase
           .from('patients')
           .select('*')
@@ -573,13 +746,13 @@ export default function DashboardPage() {
         .insert({
           user_id: user.id,
           organization_id: orgId,
-          patient_id: selectedPatient.id,  // Link to selected patient
+          patient_id: selectedPatient.id,
           file_url: publicUrl,
           file_type: file.type,
           chief_complaint: question || 'Please analyze this document',
           status: 'pending',
           document_type: documentType,
-          patient_name: selectedPatient.full_name,  // Store for easy access
+          patient_name: selectedPatient.full_name,
           patient_gender: selectedPatient.gender,
           patient_age: selectedPatient.age ? `${selectedPatient.age}` : null
         })
@@ -646,7 +819,7 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-cyan-500" />
+        <Loader2 className={`w-8 h-8 animate-spin ${theme.primary.text}`} />
       </div>
     );
   }
@@ -657,7 +830,7 @@ export default function DashboardPage() {
       <header className="bg-slate-900/80 backdrop-blur-sm border-b border-slate-700 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center">
+            <div className={`w-10 h-10 bg-gradient-to-br ${theme.primary.gradient} rounded-xl flex items-center justify-center`}>
               <span className="text-white font-bold text-lg">M</span>
             </div>
             <div>
@@ -671,16 +844,16 @@ export default function DashboardPage() {
             {selectedPatient && (
               <button
                 onClick={() => setShowPatientSelector(true)}
-                className="hidden sm:flex items-center gap-2 bg-blue-500/20 border border-blue-500/30 
-                         rounded-full px-3 py-1.5 hover:bg-blue-500/30 transition-colors"
+                className={`hidden sm:flex items-center gap-2 ${theme.primary.bgLight} border ${theme.primary.border} 
+                         rounded-full px-3 py-1.5 hover:${theme.primary.bgLighter} transition-colors`}
               >
-                <User className="w-4 h-4 text-blue-400" />
-                <span className="text-blue-300 text-sm font-medium">{selectedPatient.full_name}</span>
-                <span className="text-blue-400/70 text-xs">Change</span>
+                <User className={`w-4 h-4 ${theme.primary.text}`} />
+                <span className={`${theme.primary.textLight} text-sm font-medium`}>{selectedPatient.full_name}</span>
+                <span className={`${theme.primary.text} opacity-70 text-xs`}>Change</span>
               </button>
             )}
             
-            <button className="text-cyan-400 text-sm font-medium">Dashboard</button>
+            <button className={`${theme.primary.text} text-sm font-medium`}>Dashboard</button>
             <button 
               onClick={() => router.push(`/${org}/prescriptions`)}
               className="text-slate-400 hover:text-white text-sm"
@@ -719,7 +892,7 @@ export default function DashboardPage() {
           <h1 className="text-4xl font-bold text-white mb-2">
             Healthcare That
           </h1>
-          <h2 className="text-4xl font-bold text-cyan-400 mb-4">
+          <h2 className={`text-4xl font-bold ${theme.primary.text} mb-4`}>
             Never Sleeps
           </h2>
           <p className="text-slate-400 max-w-2xl mx-auto">
@@ -731,7 +904,7 @@ export default function DashboardPage() {
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-            <p className="text-cyan-400 text-xs font-medium mb-1">Total Uploads</p>
+            <p className={`${theme.primary.text} text-xs font-medium mb-1`}>Total Uploads</p>
             <p className="text-3xl font-bold text-white">{stats.total}</p>
             <p className="text-slate-500 text-xs">Documents analyzed</p>
           </div>
@@ -746,22 +919,21 @@ export default function DashboardPage() {
             <p className="text-slate-500 text-xs">In queue</p>
           </div>
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-            <p className="text-purple-400 text-xs font-medium mb-1">Success Rate</p>
+            <p className={`${theme.primary.text} text-xs font-medium mb-1`}>Success Rate</p>
             <p className="text-3xl font-bold text-white">{stats.accuracy}%</p>
             <p className="text-slate-500 text-xs">Accuracy score</p>
           </div>
         </div>
 
-        {/* Service Cards - Now require patient selection first */}
+        {/* Service Cards - Uses theme */}
         <ServiceCards
           onPrescriptionClick={() => handleActionWithPatient('prescription')}
           onLabReportClick={() => handleActionWithPatient('lab')}
           onChatClick={() => handleActionWithPatient('chat')}
+          theme={theme}
         />
 
-        {/* ============================================================ */}
-        {/* PATIENT HEALTH SUMMARY - Shows automatically for logged-in user */}
-        {/* ============================================================ */}
+        {/* Patient Health Summary */}
         {selectedPatient && orgId && (
           <PatientHealthSummary
             patientId={selectedPatient.id}
@@ -787,12 +959,12 @@ export default function DashboardPage() {
                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                       prescription.document_type === 'lab_report' 
                         ? 'bg-orange-500/20' 
-                        : 'bg-cyan-500/20'
+                        : theme.primary.bgLight
                     }`}>
                       {prescription.document_type === 'lab_report' ? (
-                        <FlaskConical className={`w-5 h-5 text-orange-400`} />
+                        <FlaskConical className="w-5 h-5 text-orange-400" />
                       ) : (
-                        <FileText className={`w-5 h-5 text-cyan-400`} />
+                        <FileText className={`w-5 h-5 ${theme.primary.text}`} />
                       )}
                     </div>
                     <div>
@@ -836,7 +1008,7 @@ export default function DashboardPage() {
         organizationId={orgId}
       />
 
-      {/* Upload Modals */}
+      {/* Upload Modals - Pass theme */}
       <UploadModal
         isOpen={showPrescriptionModal}
         onClose={() => setShowPrescriptionModal(false)}
@@ -844,6 +1016,7 @@ export default function DashboardPage() {
         isUploading={isUploading}
         type="prescription"
         selectedPatient={selectedPatient}
+        theme={theme}
       />
 
       <UploadModal
@@ -853,6 +1026,7 @@ export default function DashboardPage() {
         isUploading={isUploading}
         type="lab"
         selectedPatient={selectedPatient}
+        theme={theme}
       />
     </div>
   );

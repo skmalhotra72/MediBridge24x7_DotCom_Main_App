@@ -1,429 +1,684 @@
 ﻿'use client';
 
-import { isValidIndianPhone, isValidName } from '@/lib/validation';
-import { useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useParams } from 'next/navigation';
-import Link from 'next/link';
+import { useEffect, useState, Suspense } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import Link from 'next/link';
 
-export default function AuthPage() {
-  const router = useRouter();
+// ============================================================
+// THEME SYSTEM - Dynamic colors based on clinic_profiles
+// ============================================================
+
+// Default theme (cyan - universal default)
+const DEFAULT_THEME = {
+  primary: '#06b6d4',
+  primaryLight: '#22d3ee',
+  primaryDark: '#0891b2',
+  secondary: '#3b82f6',
+  accent: '#8b5cf6',
+  background: '#0f172a',
+  surface: '#164e63',
+  text: '#ffffff',
+  textMuted: '#a5f3fc',
+};
+
+// Theme presets for Tailwind classes
+const THEME_PRESETS = {
+  cyan: {
+    name: 'cyan',
+    // Text colors
+    textPrimary: 'text-cyan-400',
+    textPrimaryLight: 'text-cyan-300',
+    textMuted: 'text-cyan-300',
+    textPrimaryHex: '#22d3ee',
+    // Background colors
+    bgPrimary: 'bg-cyan-500',
+    bgPrimaryLight: 'bg-cyan-500/20',
+    bgPrimaryLighter: 'bg-cyan-500/10',
+    bgPrimaryDark: 'bg-cyan-900',
+    // Border colors
+    borderPrimary: 'border-cyan-500',
+    borderPrimaryLight: 'border-cyan-500/30',
+    // Hover states
+    hoverBg: 'hover:bg-cyan-600',
+    hoverText: 'hover:text-cyan-300',
+    // Gradient - DARK NAVY BLUE (matching production)
+    heroGradient: 'linear-gradient(135deg, #0a1628 0%, #162033 50%, #0a1628 100%)',
+    // Focus ring
+    focusRing: 'focus:ring-cyan-500',
+    // Button text color
+    buttonText: 'text-cyan-600',
+    buttonTextHover: 'hover:text-cyan-700',
+  },
+  purple: {
+    name: 'purple',
+    textPrimary: 'text-purple-400',
+    textPrimaryLight: 'text-purple-300',
+    textMuted: 'text-purple-300',
+    textPrimaryHex: '#c4b5fd',
+    bgPrimary: 'bg-purple-500',
+    bgPrimaryLight: 'bg-purple-500/20',
+    bgPrimaryLighter: 'bg-purple-500/10',
+    bgPrimaryDark: 'bg-purple-900',
+    borderPrimary: 'border-purple-500',
+    borderPrimaryLight: 'border-purple-500/30',
+    hoverBg: 'hover:bg-purple-600',
+    hoverText: 'hover:text-purple-300',
+    heroGradient: 'linear-gradient(135deg, #0f172a 0%, #581c87 50%, #0f172a 100%)',
+    focusRing: 'focus:ring-purple-500',
+    buttonText: 'text-purple-600',
+    buttonTextHover: 'hover:text-purple-700',
+  },
+  emerald: {
+    name: 'emerald',
+    textPrimary: 'text-emerald-400',
+    textPrimaryLight: 'text-emerald-300',
+    textMuted: 'text-emerald-300',
+    textPrimaryHex: '#6ee7b7',
+    bgPrimary: 'bg-emerald-500',
+    bgPrimaryLight: 'bg-emerald-500/20',
+    bgPrimaryLighter: 'bg-emerald-500/10',
+    bgPrimaryDark: 'bg-emerald-900',
+    borderPrimary: 'border-emerald-500',
+    borderPrimaryLight: 'border-emerald-500/30',
+    hoverBg: 'hover:bg-emerald-600',
+    hoverText: 'hover:text-emerald-300',
+    heroGradient: 'linear-gradient(135deg, #0f172a 0%, #064e3b 50%, #0f172a 100%)',
+    focusRing: 'focus:ring-emerald-500',
+    buttonText: 'text-emerald-600',
+    buttonTextHover: 'hover:text-emerald-700',
+  },
+  blue: {
+    name: 'blue',
+    textPrimary: 'text-blue-400',
+    textPrimaryLight: 'text-blue-300',
+    textMuted: 'text-blue-300',
+    textPrimaryHex: '#93c5fd',
+    bgPrimary: 'bg-blue-500',
+    bgPrimaryLight: 'bg-blue-500/20',
+    bgPrimaryLighter: 'bg-blue-500/10',
+    bgPrimaryDark: 'bg-blue-900',
+    borderPrimary: 'border-blue-500',
+    borderPrimaryLight: 'border-blue-500/30',
+    hoverBg: 'hover:bg-blue-600',
+    hoverText: 'hover:text-blue-300',
+    heroGradient: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0f172a 100%)',
+    focusRing: 'focus:ring-blue-500',
+    buttonText: 'text-blue-600',
+    buttonTextHover: 'hover:text-blue-700',
+  },
+  rose: {
+    name: 'rose',
+    textPrimary: 'text-rose-400',
+    textPrimaryLight: 'text-rose-300',
+    textMuted: 'text-rose-300',
+    textPrimaryHex: '#fda4af',
+    bgPrimary: 'bg-rose-500',
+    bgPrimaryLight: 'bg-rose-500/20',
+    bgPrimaryLighter: 'bg-rose-500/10',
+    bgPrimaryDark: 'bg-rose-900',
+    borderPrimary: 'border-rose-500',
+    borderPrimaryLight: 'border-rose-500/30',
+    hoverBg: 'hover:bg-rose-600',
+    hoverText: 'hover:text-rose-300',
+    heroGradient: 'linear-gradient(135deg, #0f172a 0%, #881337 50%, #0f172a 100%)',
+    focusRing: 'focus:ring-rose-500',
+    buttonText: 'text-rose-600',
+    buttonTextHover: 'hover:text-rose-700',
+  }
+};
+
+type ThemePreset = typeof THEME_PRESETS.cyan;
+
+// Function to detect theme from custom_colors
+function getThemePresetFromColors(customColors: any): ThemePreset {
+  if (!customColors) return THEME_PRESETS.cyan;
+  
+  const primary = customColors.primary?.toLowerCase() || '';
+  
+  // Match based on primary color hex
+  if (primary.includes('7c3aed') || primary.includes('8b5cf6') || primary.includes('a855f7')) {
+    return THEME_PRESETS.purple;
+  }
+  if (primary.includes('06b6d4') || primary.includes('22d3ee') || primary.includes('0ea5e9')) {
+    return THEME_PRESETS.cyan;
+  }
+  if (primary.includes('10b981') || primary.includes('34d399') || primary.includes('14b8a6')) {
+    return THEME_PRESETS.emerald;
+  }
+  if (primary.includes('3b82f6') || primary.includes('6366f1') || primary.includes('818cf8')) {
+    return THEME_PRESETS.blue;
+  }
+  if (primary.includes('f43f5e') || primary.includes('ec4899') || primary.includes('fb7185')) {
+    return THEME_PRESETS.rose;
+  }
+  
+  // Check for theme name in customColors
+  if (customColors.themeName) {
+    const themeName = customColors.themeName.toLowerCase();
+    if (themeName in THEME_PRESETS) {
+      return THEME_PRESETS[themeName as keyof typeof THEME_PRESETS];
+    }
+  }
+  
+  return THEME_PRESETS.cyan; // Default fallback
+}
+
+// Function to get inline theme colors (for dynamic hex values)
+function getThemeColors(customColors: any) {
+  if (!customColors?.primary) return DEFAULT_THEME;
+  
+  const primary = customColors.primary;
+  
+  // Detect and return appropriate color palette
+  if (primary.includes('7c3aed') || primary.includes('8b5cf6')) {
+    return {
+      ...DEFAULT_THEME,
+      primary: '#7c3aed',
+      primaryLight: '#a78bfa',
+      primaryDark: '#5b21b6',
+      secondary: '#6366f1',
+      accent: '#8b5cf6',
+      surface: '#581c87',
+      textMuted: '#c4b5fd',
+    };
+  }
+  if (primary.includes('06b6d4') || primary.includes('22d3ee')) {
+    return {
+      ...DEFAULT_THEME,
+      primary: '#06b6d4',
+      primaryLight: '#22d3ee',
+      primaryDark: '#0891b2',
+      secondary: '#3b82f6',
+      accent: '#8b5cf6',
+      surface: '#164e63',
+      textMuted: '#a5f3fc',
+    };
+  }
+  
+  // Return custom colors merged with defaults
+  return { ...DEFAULT_THEME, ...customColors };
+}
+
+// ============================================================
+// AUTH CONTENT COMPONENT
+// ============================================================
+
+function AuthContent() {
   const params = useParams();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const org = params.org as string;
-  const mode = searchParams.get('mode') || 'login';
-  const supabase = createClient();
+  const initialMode = searchParams.get('mode') || 'login';
 
+  const [mode, setMode] = useState<'login' | 'signup'>(initialMode as 'login' | 'signup');
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  
+  const [orgName, setOrgName] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [theme, setTheme] = useState(DEFAULT_THEME);
+  const [themePreset, setThemePreset] = useState<ThemePreset>(THEME_PRESETS.cyan);
+
+  // Form state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
-  
-  // Validation error states
-  const [nameError, setNameError] = useState<string | null>(null);
-  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [rememberMe, setRememberMe] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setIsLoading(true);
+  useEffect(() => {
+    async function fetchClinicData() {
+      const supabase = createClient();
 
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password: password,
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      if (data.user) {
+      // Check if already logged in
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
         router.push(`/${org}/dashboard`);
-        router.refresh();
+        return;
       }
-    } catch (err: any) {
-      console.error('Login error:', err);
-      setError(err.message || 'Failed to sign in. Please check your credentials.');
-      setIsLoading(false);
-    }
-  };
 
-  const handleSignup = async (e: React.FormEvent) => {
+      // Get organization
+      const { data: organization } = await supabase
+        .from('organizations')
+        .select('id, name, slug')
+        .eq('slug', org)
+        .single();
+
+      if (organization) {
+        setOrgName(organization.name);
+
+        // Get clinic profile with custom colors
+        const { data: clinicProfile } = await supabase
+          .from('clinic_profiles')
+          .select('custom_colors, contact_phone')
+          .eq('organization_id', organization.id)
+          .single();
+
+        if (clinicProfile?.custom_colors) {
+          setTheme(getThemeColors(clinicProfile.custom_colors));
+          setThemePreset(getThemePresetFromColors(clinicProfile.custom_colors));
+        }
+        if (clinicProfile?.contact_phone) {
+          setContactPhone(clinicProfile.contact_phone);
+        }
+      } else {
+        setOrgName(org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
+      }
+
+      setLoading(false);
+    }
+
+    fetchClinicData();
+  }, [org, router]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-    
-    // Clear previous validation errors
-    setNameError(null);
-    setPhoneError(null);
-    
-    // Validate before submission
-    let hasErrors = false;
-    
-    if (!isValidName(fullName)) {
-      setNameError('Name should only contain letters and spaces (minimum 2 characters)');
-      hasErrors = true;
-    }
-    
-    if (phone && !isValidIndianPhone(phone)) {
-      setPhoneError('Please enter a valid 10-digit mobile number (starting with 6-9)');
-      hasErrors = true;
-    }
-    
-    if (hasErrors) {
-      return; // Stop submission if validation fails
-    }
-    
-    setIsLoading(true);
+    setSubmitting(true);
+    setError(null);
+    setSuccess(null);
+
+    const supabase = createClient();
 
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
-        password: password,
-        options: {
-          data: {
-            full_name: fullName,
-            phone: phone,
+      if (mode === 'login') {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (error) throw error;
+        router.push(`/${org}/dashboard`);
+      } else {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name: fullName,
+              organization_slug: org,
+            },
           },
-        },
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      if (data.user) {
-        // Check if email confirmation is required
-        if (data.user.identities && data.user.identities.length === 0) {
-          setError('An account with this email already exists.');
-          setIsLoading(false);
-          return;
-        }
-
-        // If email confirmation is required
-        if (data.user && !data.session) {
-          alert('Please check your email to confirm your account!');
-          router.push(`/${org}/auth?mode=login`);
-        } else {
-          // Auto sign-in after signup
-          router.push(`/${org}/dashboard`);
-          router.refresh();
-        }
+        });
+        if (error) throw error;
+        setSuccess('Account created! Please check your email to verify.');
       }
     } catch (err: any) {
-      console.error('Signup error:', err);
-      setError(err.message || 'Failed to create account. Please try again.');
-      setIsLoading(false);
+      setError(err.message || 'An error occurred');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleSubmit = mode === 'login' ? handleLogin : handleSignup;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+        <div 
+          className="w-10 h-10 border-4 border-t-transparent rounded-full animate-spin"
+          style={{ borderColor: `${theme.primary}30`, borderTopColor: theme.primary }}
+        />
+      </div>
+    );
+  }
+
+  const features = [
+    { 
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+      ),
+      title: 'Instant Analysis', 
+      desc: 'AI-powered prescription analysis in under 30 seconds' 
+    },
+    { 
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+        </svg>
+      ),
+      title: '9+ Languages', 
+      desc: 'Get healthcare guidance in your preferred language' 
+    },
+    { 
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        </svg>
+      ),
+      title: '100% Secure', 
+      desc: 'Bank-grade encryption protects your health data' 
+    },
+  ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center p-6">
-      {/* Background Effects */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl"></div>
-      </div>
-
-      <div className="relative z-10 w-full max-w-6xl grid lg:grid-cols-2 gap-8 items-center">
-        
-        {/* Left: Branding & Features */}
-        <div className="hidden lg:block">
-          <div className="mb-8">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-14 h-14 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-xl flex items-center justify-center shadow-2xl shadow-cyan-500/50">
-                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
+    <div className="min-h-screen bg-slate-900">
+      {/* Header - Full Width, Matching Clinic Website */}
+      <header className="fixed top-0 left-0 right-0 z-50 bg-slate-900/80 backdrop-blur-md border-b border-white/10">
+        <div className="container mx-auto px-4">
+          <div className="flex items-center justify-between h-16">
+            {/* Logo */}
+            <Link href={`/${org}`} className="flex items-center gap-3">
+              <div 
+                className="w-9 h-9 rounded-lg flex items-center justify-center"
+                style={{ background: theme.primary }}
+              >
+                <span className="text-white font-bold">{orgName.charAt(0)}</span>
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-white">MediBridge</h1>
-                <p className="text-cyan-400 font-medium">Healthcare Intelligence</p>
+                <span className="font-bold text-white">{orgName}</span>
+                <p className={`text-xs ${themePreset.textMuted}`}>Powered by MediBridge</p>
               </div>
-            </div>
-            <h2 className="text-5xl font-bold text-white mb-4 leading-tight">
-              Healthcare That<br />
-              <span className="bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-                Never Sleeps
-              </span>
-            </h2>
-            <p className="text-xl text-gray-300 mb-10">
-              Your 24/7 AI-powered healthcare companion for prescription analysis and personalized guidance.
-            </p>
-          </div>
+            </Link>
 
-          {/* Features */}
-          <div className="space-y-4">
-            <div className="flex items-start gap-4 p-4 bg-white/5 rounded-2xl border border-white/10 backdrop-blur-xl">
-              <div className="w-12 h-12 bg-cyan-500/20 rounded-xl flex items-center justify-center border border-cyan-500/30 flex-shrink-0">
-                <svg className="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="font-bold text-white mb-1">Instant Analysis</h3>
-                <p className="text-sm text-gray-400">AI-powered prescription analysis in under 30 seconds</p>
-              </div>
-            </div>
+            {/* Navigation */}
+            <nav className="hidden lg:flex items-center gap-6">
+              <Link href={`/clinic/${org}#doctors`} className="text-sm text-white/80 hover:text-white transition-colors">
+                Our Doctors
+              </Link>
+              <Link href={`/clinic/${org}#services`} className="text-sm text-white/80 hover:text-white transition-colors">
+                Services
+              </Link>
+              <Link href={`/clinic/${org}#medibridge`} className="text-sm text-white/80 hover:text-white transition-colors">
+                General Care
+              </Link>
+              <Link href={`/clinic/${org}#testimonials`} className="text-sm text-white/80 hover:text-white transition-colors">
+                Reviews
+              </Link>
+            </nav>
 
-            <div className="flex items-start gap-4 p-4 bg-white/5 rounded-2xl border border-white/10 backdrop-blur-xl">
-              <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center border border-purple-500/30 flex-shrink-0">
-                <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+            {/* CTA Buttons */}
+            <div className="flex items-center gap-3">
+              <Link
+                href={`/${org}`}
+                className="hidden md:inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-white/10 text-white hover:bg-white/20 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
-              </div>
-              <div>
-                <h3 className="font-bold text-white mb-1">9+ Languages</h3>
-                <p className="text-sm text-gray-400">Get healthcare guidance in your preferred language</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-4 p-4 bg-white/5 rounded-2xl border border-white/10 backdrop-blur-xl">
-              <div className="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center border border-green-500/30 flex-shrink-0">
-                <svg className="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="font-bold text-white mb-1">100% Secure</h3>
-                <p className="text-sm text-gray-400">Bank-grade encryption protects your health data</p>
-              </div>
+                Patient Portal
+              </Link>
+              {contactPhone && (
+                <a
+                  href={`tel:${contactPhone}`}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
+                  style={{ background: theme.primary }}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                  </svg>
+                  Call Now
+                </a>
+              )}
             </div>
           </div>
         </div>
+      </header>
 
-        {/* Right: Auth Form */}
-        <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-xl rounded-3xl border border-white/10 p-8 shadow-2xl">
-          {/* Mobile Logo */}
-          <div className="lg:hidden flex items-center gap-3 mb-8">
-            <div className="w-12 h-12 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/50">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white">MediBridge</h1>
-              <p className="text-xs text-cyan-400 font-medium">Healthcare Intelligence</p>
-            </div>
-          </div>
-
-          {/* Form Header */}
-          <div className="mb-8">
-            <h2 className="text-3xl font-bold text-white mb-2">
-              {mode === 'login' ? 'Welcome Back' : 'Get Started'}
-            </h2>
-            <p className="text-gray-400">
-              {mode === 'login' 
-                ? 'Sign in to access your healthcare dashboard' 
-                : 'Create your account to start your healthcare journey'}
-            </p>
-          </div>
-
-          {/* Error Message */}
-          {error && (
-            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-3">
-              <svg className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <p className="text-red-400 text-sm">{error}</p>
-            </div>
-          )}
-
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {mode === 'signup' && (
-              <>
-                {/* Full Name Field with Validation */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Full Name
-                  </label>
-                  <input
-                    type="text"
-                    value={fullName}
-                    onChange={(e) => {
-                      // Only allow letters and spaces
-                      const value = e.target.value;
-                      const lettersOnly = value.replace(/[^a-zA-Z\s]/g, '');
-                      setFullName(lettersOnly);
-                      // Clear error when user starts typing
-                      if (nameError) setNameError(null);
-                    }}
-                    onBlur={() => {
-                      if (fullName && !isValidName(fullName)) {
-                        setNameError('Name should only contain letters and spaces (minimum 2 characters)');
-                      }
-                    }}
-                    className={`w-full px-4 py-3 bg-white/5 border-2 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 transition-all ${
-                      nameError 
-                        ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' 
-                        : 'border-white/10 focus:border-cyan-500 focus:ring-cyan-500/20'
-                    }`}
-                    placeholder="John Doe"
-                    required={mode === 'signup'}
-                  />
-                  {nameError && (
-                    <p className="mt-2 text-sm text-red-400 flex items-center gap-1">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      {nameError}
-                    </p>
-                  )}
+      {/* Auth Content - Full Width */}
+      <div 
+        className="min-h-screen pt-16 flex items-center"
+        style={{ background: themePreset.heroGradient }}
+      >
+        <div className="container mx-auto px-4 py-12">
+          <div className="max-w-5xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
+            
+            {/* Left Side - Branding */}
+            <div className="hidden lg:block">
+              {/* Logo */}
+              <div className="flex items-center gap-3 mb-8">
+                <div 
+                  className="w-12 h-12 rounded-xl flex items-center justify-center shadow-lg"
+                  style={{ background: theme.primary, boxShadow: `0 10px 40px ${theme.primary}50` }}
+                >
+                  <span className="text-white font-bold text-xl">{orgName.charAt(0)}</span>
                 </div>
-
-                {/* Phone Number Field with Validation */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Phone Number
-                  </label>
+                  <span className="font-bold text-xl text-white">{orgName}</span>
+                  <p className={`text-sm ${themePreset.textMuted}`}>Healthcare Intelligence</p>
+                </div>
+              </div>
+
+              {/* Tagline */}
+              <h1 className="text-4xl font-bold text-white mb-2">
+                Healthcare That
+              </h1>
+              <h2 className={`text-4xl font-bold ${themePreset.textPrimary} mb-6`}>
+                Never Sleeps
+              </h2>
+
+              <p className="text-lg text-gray-300 mb-8">
+                Your 24/7 AI-powered healthcare companion for prescription 
+                analysis and personalized guidance.
+              </p>
+
+              {/* Features */}
+              <div className="space-y-4">
+                {features.map((feature, index) => (
+                  <div 
+                    key={index}
+                    className="flex items-start gap-4 p-4 rounded-xl bg-white/5 backdrop-blur-sm"
+                  >
+                    <div 
+                      className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${themePreset.textMuted}`}
+                      style={{ background: `${theme.primary}30` }}
+                    >
+                      {feature.icon}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-white">{feature.title}</h3>
+                      <p className="text-sm text-gray-400">{feature.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Right Side - Auth Form */}
+            <div className="bg-white rounded-3xl p-8 shadow-2xl">
+              {/* Mobile Logo */}
+              <div className="lg:hidden flex items-center gap-3 mb-6">
+                <div 
+                  className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ background: theme.primary }}
+                >
+                  <span className="text-white font-bold">{orgName.charAt(0)}</span>
+                </div>
+                <div>
+                  <span className="font-bold text-gray-900">{orgName}</span>
+                  <p className="text-xs" style={{ color: theme.primary }}>Powered by MediBridge</p>
+                </div>
+              </div>
+
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                {mode === 'login' ? 'Welcome Back' : 'Create Account'}
+              </h2>
+              <p className="mb-6 text-gray-500">
+                {mode === 'login' 
+                  ? 'Sign in to access your healthcare dashboard' 
+                  : 'Get started with your free account'}
+              </p>
+
+              {error && (
+                <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-600 text-sm border border-red-100">
+                  {error}
+                </div>
+              )}
+
+              {success && (
+                <div className="mb-4 p-3 rounded-lg bg-green-50 text-green-600 text-sm border border-green-100">
+                  {success}
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {mode === 'signup' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                    <div className="relative">
+                      <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                      <input
+                        type="text"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        className={`w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 ${themePreset.focusRing} focus:border-transparent transition-all`}
+                        placeholder="Enter your full name"
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
                   <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">+91</span>
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
                     <input
-                      type="tel"
-                      value={phone}
-                      onChange={(e) => {
-                        // Only allow digits, max 10 characters
-                        const value = e.target.value;
-                        const digitsOnly = value.replace(/\D/g, '').slice(0, 10);
-                        setPhone(digitsOnly);
-                        // Clear error when user starts typing
-                        if (phoneError) setPhoneError(null);
-                      }}
-                      onBlur={() => {
-                        if (phone && !isValidIndianPhone(phone)) {
-                          setPhoneError('Please enter a valid 10-digit mobile number (starting with 6-9)');
-                        }
-                      }}
-                      className={`w-full pl-12 pr-4 py-3 bg-white/5 border-2 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 transition-all ${
-                        phoneError 
-                          ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' 
-                          : 'border-white/10 focus:border-cyan-500 focus:ring-cyan-500/20'
-                      }`}
-                      placeholder="9876543210"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className={`w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 ${themePreset.focusRing} focus:border-transparent transition-all`}
+                      placeholder="you@example.com"
+                      required
                     />
                   </div>
-                  {phoneError && (
-                    <p className="mt-2 text-sm text-red-400 flex items-center gap-1">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      {phoneError}
-                    </p>
-                  )}
-                  {!phoneError && phone && (
-                    <p className="mt-1 text-xs text-gray-500">
-                      {phone.length}/10 digits
-                    </p>
-                  )}
                 </div>
-              </>
-            )}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Email Address
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 bg-white/5 border-2 border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                placeholder="your@email.com"
-                required
-                autoComplete="email"
-              />
-            </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                  <div className="relative">
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className={`w-full pl-10 pr-12 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 ${themePreset.focusRing} focus:border-transparent transition-all`}
+                      placeholder="••••••••"
+                      required
+                      minLength={6}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      {showPassword ? (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Password
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-white/5 border-2 border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                placeholder="••••••••"
-                required
-                minLength={6}
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              />
-              {mode === 'signup' && (
-                <p className="text-xs text-gray-500 mt-2">Minimum 6 characters</p>
-              )}
-            </div>
+                {mode === 'login' && (
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        className="w-4 h-4 rounded border-gray-300 focus:ring-2"
+                        style={{ accentColor: theme.primary }}
+                      />
+                      <span className="text-sm text-gray-600">Remember me</span>
+                    </label>
+                    <a 
+                      href="#" 
+                      className={`text-sm font-medium ${themePreset.buttonText} ${themePreset.buttonTextHover} transition-colors`}
+                    >
+                      Forgot password?
+                    </a>
+                  </div>
+                )}
 
-            {mode === 'login' && (
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 rounded border-white/20 bg-white/5 text-cyan-500 focus:ring-cyan-500"
-                  />
-                  <span className="text-sm text-gray-300">Remember me</span>
-                </label>
                 <button
-                  type="button"
-                  className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full py-3 rounded-xl font-semibold text-white flex items-center justify-center gap-2 transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ background: theme.primary }}
                 >
-                  Forgot password?
+                  {submitting ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      {mode === 'login' ? 'Sign In' : 'Create Account'}
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                      </svg>
+                    </>
+                  )}
                 </button>
+              </form>
+
+              <div className="mt-6 text-center">
+                <p className="text-gray-500">
+                  {mode === 'login' ? "Don't have an account?" : 'Already have an account?'}
+                  {' '}
+                  <button
+                    onClick={() => {
+                      setMode(mode === 'login' ? 'signup' : 'login');
+                      setError(null);
+                      setSuccess(null);
+                    }}
+                    className={`font-semibold ${themePreset.buttonText} ${themePreset.buttonTextHover} transition-colors`}
+                  >
+                    {mode === 'login' ? 'Sign up' : 'Sign in'}
+                  </button>
+                </p>
               </div>
-            )}
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full px-6 py-4 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-bold rounded-xl hover:from-cyan-600 hover:to-blue-600 shadow-xl hover:shadow-cyan-500/50 transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
-            >
-              {isLoading ? (
-                <>
-                  <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  {mode === 'login' ? 'Signing in...' : 'Creating account...'}
-                </>
-              ) : (
-                <>
-                  {mode === 'login' ? 'Sign In' : 'Create Account'}
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                  </svg>
-                </>
-              )}
-            </button>
-          </form>
+              <div className="mt-6 pt-6 border-t text-center text-xs text-gray-400">
+                By continuing, you agree to our{' '}
+                <a href="#" className={`${themePreset.buttonText} hover:underline`}>Terms of Service</a>
+                {' '}and{' '}
+                <a href="#" className={`${themePreset.buttonText} hover:underline`}>Privacy Policy</a>
+              </div>
 
-          {/* Toggle Auth Mode */}
-          <div className="mt-8 text-center">
-            <p className="text-gray-400">
-              {mode === 'login' ? "Don't have an account?" : 'Already have an account?'}
-              {' '}
-              <Link
-                href={`/${org}/auth?mode=${mode === 'login' ? 'signup' : 'login'}`}
-                className="text-cyan-400 font-semibold hover:text-cyan-300 transition-colors"
-              >
-                {mode === 'login' ? 'Sign up' : 'Sign in'}
-              </Link>
-            </p>
+              {/* Back to Home */}
+              <div className="mt-4 text-center">
+                <Link
+                  href={`/${org}`}
+                  className="text-sm text-gray-400 hover:text-gray-600 transition-colors inline-flex items-center gap-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                  Back to home
+                </Link>
+              </div>
+            </div>
           </div>
-
-          {/* Terms */}
-          <p className="text-xs text-center text-gray-500 mt-6">
-            By continuing, you agree to our{' '}
-            <a href="#" className="text-cyan-400 hover:text-cyan-300">Terms of Service</a>
-            {' '}and{' '}
-            <a href="#" className="text-cyan-400 hover:text-cyan-300">Privacy Policy</a>
-          </p>
         </div>
       </div>
     </div>
+  );
+}
+
+// ============================================================
+// MAIN AUTH PAGE WITH SUSPENSE
+// ============================================================
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+        <div className="w-10 h-10 border-4 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin" />
+      </div>
+    }>
+      <AuthContent />
+    </Suspense>
   );
 }
