@@ -76,22 +76,17 @@ export interface ClinicService {
   // ============================================
   export interface DoctorProfile {
     id: string;
-    organization_id: string;
     full_name: string;
-    specialization: string | null;
-    qualifications: string | null;
-    experience_years: number | null;
-    photo_url: string | null;
-    bio: string | null;
-    awards: string[];
-    certifications: string[];
+    specialization: string;
+    qualifications: string;
+    experience_years: number;
+    bio: string;
+    photo_url?: string;  // ← Add this line
     languages_spoken: string[];
-    consultation_fee: number | null;
+    consultation_fee: number;
+    awards: { name: string }[];
     available_days: string[];
-    display_order: number;
-    is_active: boolean;
-    created_at: string;
-    updated_at: string;
+    is_active?: boolean;
   }
   
   // ============================================
