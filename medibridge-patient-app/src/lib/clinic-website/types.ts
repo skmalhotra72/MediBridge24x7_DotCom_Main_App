@@ -81,7 +81,7 @@ export interface ClinicService {
     qualifications: string;
     experience_years: number;
     bio: string;
-    photo_url?: string;  // ← Add this line
+    photo_url?: string;           // ← Add if missing
     languages_spoken: string[];
     consultation_fee: number;
     awards: { name: string }[];
@@ -89,21 +89,15 @@ export interface ClinicService {
     is_active?: boolean;
   }
   
-  // ============================================
-  // Testimonial Type
-  // ============================================
   export interface Testimonial {
     id: string;
-    organization_id: string;
     patient_name: string;
-    patient_photo_url: string | null;
+    patient_photo_url?: string;   // ← Add if missing
     rating: number;
     review_text: string;
-    treatment_type: string | null;
-    review_date: string;
-    is_featured: boolean;
-    is_approved: boolean;
-    created_at: string;
+    treatment_type: string;
+    is_featured?: boolean;
+    is_approved?: boolean;
   }
   
   // ============================================

@@ -118,7 +118,7 @@ export default function TestimonialsSection({ data }: TestimonialsSectionProps) 
               {/* Patient Info */}
               <div className="flex items-center gap-3">
                 <img
-                  src={testimonial.patient_photo_url || patientImages[index % patientImages.length]}
+                 src={(testimonial as any).patient_photo_url || patientImages[index % patientImages.length]}
                   alt={testimonial.patient_name}
                   className="w-12 h-12 rounded-full object-cover"
                 />
