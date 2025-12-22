@@ -17,12 +17,12 @@ export function middleware(request: NextRequest) {
   if (
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/api/') ||
-    pathname.match(/\.(ico|png|jpg|jpeg|gif|svg|css|js|woff|woff2)$/)
+    pathname.match(/\.(ico|png|jpg|jpeg|gif|svg|css|js|woff|woff2|webp)$/)
   ) {
     return NextResponse.next()
   }
   
-  // Skip if already on a clinic page
+  // Skip if already on a clinic page (white-label site route)
   if (pathname.startsWith('/clinic/')) {
     return NextResponse.next()
   }
@@ -33,8 +33,10 @@ export function middleware(request: NextRequest) {
   // Production: subdomain.medibridge24x7.com
   if (hostname.includes('medibridge24x7.com')) {
     const parts = hostname.split('.')
+    // For cgh.medibridge24x7.com -> parts = ['cgh', 'medibridge24x7', 'com']
     if (parts.length >= 3) {
       const potentialSubdomain = parts[0].toLowerCase()
+      // Exclude reserved subdomains
       if (!['www', 'patients', 'admin', 'api', 'medibridge24x7'].includes(potentialSubdomain)) {
         subdomain = potentialSubdomain
       }
@@ -50,11 +52,23 @@ export function middleware(request: NextRequest) {
     }
   }
   
-  // If we have a matching subdomain, rewrite to clinic page
+  // If we have a matching subdomain
   if (subdomain && SUBDOMAIN_MAP[subdomain]) {
     const clinicSlug = SUBDOMAIN_MAP[subdomain]
-    url.pathname = `/clinic/${clinicSlug}`
-    return NextResponse.rewrite(url)
+    
+    // ONLY rewrite ROOT path to clinic page
+    // cgh.medibridge24x7.com/ → /clinic/city-general-hospital
+    if (pathname === '/' || pathname === '') {
+      url.pathname = `/clinic/${clinicSlug}`
+      return NextResponse.rewrite(url)
+    }
+    
+    // For ALL OTHER paths, pass through WITHOUT modification
+    // This allows:
+    // - cgh.medibridge24x7.com/city-general-hospital → /city-general-hospital (patient portal)
+    // - cgh.medibridge24x7.com/city-general-hospital/chat → /city-general-hospital/chat
+    // - cgh.medibridge24x7.com/city-general-hospital/login → /city-general-hospital/login
+    return NextResponse.next()
   }
   
   return NextResponse.next()
@@ -62,6 +76,7 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    // Match all paths except static files
     '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 }
