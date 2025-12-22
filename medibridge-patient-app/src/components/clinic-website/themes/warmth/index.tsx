@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Menu, X, Phone, MessageSquare } from 'lucide-react';
+import { Menu, X, Phone, MessageSquare, LayoutDashboard } from 'lucide-react';
 import type { ClinicWebsiteData } from '@/lib/clinic-website/types';
 import HeroSection from './HeroSection';
 import MediBridgeBanner from './MediBridgeBanner';
@@ -62,11 +62,15 @@ function Header({ data, patientPortalUrl }: HeaderProps) {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Clinic Portal Login URL (redirects to portal after login)
+  const clinicPortalUrl = 'http://localhost:5173/login';
+  
   const navLinks = [
     { name: 'Our Doctors', href: '#doctors' },
     { name: 'Services', href: '#services' },
     { name: 'General Care', href: '#medibridge' },
     { name: 'Reviews', href: '#testimonials' },
+    { name: 'Website Admin', href: `/${organization.slug}/auth?redirect=admin` },
   ];
 
   return (
@@ -118,7 +122,22 @@ function Header({ data, patientPortalUrl }: HeaderProps) {
 
             {/* CTA Buttons */}
             <div className="flex items-center gap-3">
-              {/* Patient Portal - Now uses relative URL */}
+              {/* Clinic Portal - Links to MediBridge Login Page */}
+              <a
+                href={clinicPortalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`hidden md:inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  isScrolled
+                    ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                    : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30'
+                }`}
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                Clinic Portal
+              </a>
+
+              {/* Patient Portal - Uses relative URL */}
               <a
                 href={patientPortalUrl}
                 className={`hidden md:inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -174,6 +193,17 @@ function Header({ data, patientPortalUrl }: HeaderProps) {
                 ))}
               </ul>
               <div className="mt-4 pt-4 border-t space-y-3">
+                {/* Clinic Portal - Mobile */}
+                <a
+                  href={clinicPortalUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full inline-flex items-center justify-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-3 rounded-lg font-medium"
+                >
+                  <LayoutDashboard className="w-5 h-5" />
+                  Clinic Portal (Staff Login)
+                </a>
+                {/* Patient Portal - Mobile */}
                 <a
                   href={patientPortalUrl}
                   className="w-full inline-flex items-center justify-center gap-2 bg-purple-100 text-purple-700 px-4 py-3 rounded-lg font-medium"

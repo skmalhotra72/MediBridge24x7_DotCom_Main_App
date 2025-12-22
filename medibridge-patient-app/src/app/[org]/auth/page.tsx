@@ -236,7 +236,13 @@ function AuthContent() {
       // Check if already logged in
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        router.push(`/${org}/dashboard`);
+        // UPDATED: Check if redirect=admin in URL
+        const redirectTo = searchParams.get('redirect');
+        if (redirectTo === 'admin') {
+          router.push(`/${org}/admin/clinic-website`);
+        } else {
+          router.push(`/${org}/dashboard`);
+        }
         return;
       }
 
@@ -272,7 +278,7 @@ function AuthContent() {
     }
 
     fetchClinicData();
-  }, [org, router]);
+  }, [org, router, searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -289,7 +295,14 @@ function AuthContent() {
           password,
         });
         if (error) throw error;
-        router.push(`/${org}/dashboard`);
+        
+        // UPDATED: Check if redirect=admin in URL
+        const redirectTo = searchParams.get('redirect');
+        if (redirectTo === 'admin') {
+          router.push(`/${org}/admin/clinic-website`);
+        } else {
+          router.push(`/${org}/dashboard`);
+        }
       } else {
         const { error } = await supabase.auth.signUp({
           email,

@@ -13,14 +13,24 @@ interface DashboardStats {
   isPublished: boolean;
 }
 
+interface StaffMember {
+  id: string;
+  role: string;
+  email: string;
+  full_name: string;
+  is_active: boolean;
+}
+
 export default function AdminDashboardPage() {
   const params = useParams();
   const router = useRouter();
   const org = params.org as string;
 
   const [loading, setLoading] = useState(true);
+  const [authorized, setAuthorized] = useState(false);
   const [orgName, setOrgName] = useState('');
   const [orgId, setOrgId] = useState('');
+  const [staffInfo, setStaffInfo] = useState<StaffMember | null>(null);
   const [stats, setStats] = useState<DashboardStats>({
     doctors: 0,
     testimonials: 0,
@@ -36,7 +46,7 @@ export default function AdminDashboardPage() {
       // Check auth
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        router.push(`/${org}/auth`);
+        router.push(`/${org}/auth?redirect=admin`);
         return;
       }
 
@@ -54,6 +64,26 @@ export default function AdminDashboardPage() {
 
       setOrgName(organization.name);
       setOrgId(organization.id);
+
+      // ✅ CHECK IF USER IS AUTHORIZED STAFF FOR THIS CLINIC
+      const { data: staffData, error: staffError } = await supabase
+        .from('org_staff')
+        .select('id, role, email, full_name, is_active')
+        .eq('user_id', user.id)
+        .eq('organization_id', organization.id)
+        .eq('is_active', true)
+        .single();
+
+      if (staffError || !staffData) {
+        // User is NOT authorized staff - redirect to patient dashboard
+        console.log('Access denied: User is not authorized staff for this clinic');
+        router.push(`/${org}/dashboard?error=unauthorized`);
+        return;
+      }
+
+      // User is authorized!
+      setAuthorized(true);
+      setStaffInfo(staffData);
 
       // Get clinic profile
       const { data: profile } = await supabase
@@ -94,7 +124,32 @@ export default function AdminDashboardPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="w-10 h-10 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">Verifying access...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!authorized) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center p-8 bg-white rounded-xl shadow-lg max-w-md">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h2>
+          <p className="text-gray-600 mb-6">You are not authorized to access the admin dashboard for this clinic.</p>
+          <Link
+            href={`/${org}/dashboard`}
+            className="inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+          >
+            Go to Patient Dashboard
+          </Link>
+        </div>
       </div>
     );
   }
@@ -150,8 +205,20 @@ export default function AdminDashboardPage() {
     <AdminLayout orgSlug={org} orgName={orgName}>
       {/* Page Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Website Dashboard</h1>
-        <p className="text-gray-500 mt-1">Manage your clinic's white-label website</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Website Dashboard</h1>
+            <p className="text-gray-500 mt-1">Manage your clinic&apos;s white-label website</p>
+          </div>
+          {staffInfo && (
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-green-100 text-green-700 rounded-full text-sm">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+              {staffInfo.role === 'owner' ? 'Owner' : staffInfo.role}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -290,7 +357,7 @@ export default function AdminDashboardPage() {
             </div>
             <div>
               <h4 className="font-medium text-gray-900">Complete your clinic profile</h4>
-              <p className="text-sm text-gray-500">Add your clinic's contact info, tagline, and about section</p>
+              <p className="text-sm text-gray-500">Add your clinic&apos;s contact info, tagline, and about section</p>
             </div>
           </div>
 
@@ -306,7 +373,7 @@ export default function AdminDashboardPage() {
             </div>
             <div>
               <h4 className="font-medium text-gray-900">Add your doctors</h4>
-              <p className="text-sm text-gray-500">List your clinic's doctors with their specializations and fees</p>
+              <p className="text-sm text-gray-500">List your clinic&apos;s doctors with their specializations and fees</p>
             </div>
           </div>
 
