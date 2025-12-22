@@ -1,0 +1,15 @@
+{
+    "redirects": [
+      {
+        "source": "/",
+        "has": [
+          {
+            "type": "host",
+            "value": "demo-clinic.medibridge24x7.com"
+          }
+        ],
+        "destination": "/clinic/demo-clinic",
+        "permanent": false
+      }
+    ]
+  }
