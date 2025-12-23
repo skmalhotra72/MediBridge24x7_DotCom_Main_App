@@ -73,7 +73,7 @@ function Header({ data, patientPortalUrl }: HeaderProps) {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const clinicPortalUrl = 'http://localhost:5173/login';
+  const clinicPortalUrl = '/#staff-portal-coming-soon';
 
   const navLinks = [
     { name: 'About', href: '#about' },

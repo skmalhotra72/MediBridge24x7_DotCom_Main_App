@@ -63,7 +63,7 @@ function Header({ data, patientPortalUrl }: HeaderProps) {
   }, []);
 
   // Clinic Portal Login URL (redirects to portal after login)
-  const clinicPortalUrl = 'http://localhost:5173/login';
+  const clinicPortalUrl = '/#staff-portal-coming-soon';
   
   const navLinks = [
     { name: 'Our Doctors', href: '#doctors' },
