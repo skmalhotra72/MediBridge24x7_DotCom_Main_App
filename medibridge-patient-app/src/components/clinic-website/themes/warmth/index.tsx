@@ -65,7 +65,7 @@ function Header({ data, patientPortalUrl }: HeaderProps) {
   // Staff Portal URL - Production deployment
   const clinicPortalUrl = typeof window !== 'undefined' && window.location.hostname === 'localhost'
   ? 'http://localhost:5173/login'
-  : 'https://medibridge-staff-portal-hg80glvbl-sanjeevs-projects-7e7cb409.vercel.app/login';
+  : 'https://admin.medibridge24x7.com/login';
   
   const navLinks = [
     { name: 'Our Doctors', href: '#doctors' },
