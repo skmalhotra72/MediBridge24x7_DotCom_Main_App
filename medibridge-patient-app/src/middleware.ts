@@ -17,12 +17,12 @@ export function middleware(request: NextRequest) {
   if (
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/api/') ||
-    pathname.match(/\.(ico|png|jpg|jpeg|gif|svg|css|js|woff|woff2|webp)$/)
+    pathname.match(/\.(ico|png|jpg|jpeg|gif|svg|css|js|woff|woff2)$/)
   ) {
     return NextResponse.next()
   }
   
-  // Skip if already on a clinic page (white-label site route)
+  // Skip if already on a clinic page
   if (pathname.startsWith('/clinic/')) {
     return NextResponse.next()
   }
@@ -52,23 +52,11 @@ export function middleware(request: NextRequest) {
     }
   }
   
-  // If we have a matching subdomain
+  // If we have a matching subdomain, rewrite to clinic page
   if (subdomain && SUBDOMAIN_MAP[subdomain]) {
     const clinicSlug = SUBDOMAIN_MAP[subdomain]
-    
-    // ONLY rewrite ROOT path to clinic page
-    // cgh.medibridge24x7.com/ → /clinic/city-general-hospital
-    if (pathname === '/' || pathname === '') {
-      url.pathname = `/clinic/${clinicSlug}`
-      return NextResponse.rewrite(url)
-    }
-    
-    // For ALL OTHER paths, pass through WITHOUT modification
-    // This allows:
-    // - cgh.medibridge24x7.com/city-general-hospital → /city-general-hospital (patient portal)
-    // - cgh.medibridge24x7.com/city-general-hospital/chat → /city-general-hospital/chat
-    // - cgh.medibridge24x7.com/city-general-hospital/login → /city-general-hospital/login
-    return NextResponse.next()
+    url.pathname = `/clinic/${clinicSlug}`
+    return NextResponse.rewrite(url)
   }
   
   return NextResponse.next()
