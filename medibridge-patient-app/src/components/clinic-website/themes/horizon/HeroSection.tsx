@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { 
-  Calendar, Phone, Play, Shield, Award, Users, Activity, Zap, 
+  Calendar, Phone, MessageSquare, Shield, Award, Users, Activity, Zap, 
   Star, MapPin, Clock, ArrowRight, Sparkles,
   Heart, Brain, Stethoscope
 } from 'lucide-react';
@@ -10,11 +10,15 @@ import type { ClinicWebsiteData } from '@/lib/clinic-website/types';
 
 interface HeroSectionProps {
   data: ClinicWebsiteData;
+  patientPortalUrl?: string;
 }
 
-export default function HeroSection({ data }: HeroSectionProps) {
+export default function HeroSection({ data, patientPortalUrl }: HeroSectionProps) {
   const { organization, doctors } = data;
   const [currentSlide, setCurrentSlide] = useState(0);
+
+  // Default patient portal URL if not provided
+  const portalUrl = patientPortalUrl || `/${organization.slug || 'city-general-hospital'}`;
 
   // Hero slides with stunning hospital imagery
   const heroSlides = [
@@ -173,16 +177,17 @@ export default function HeroSection({ data }: HeroSectionProps) {
                   <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                 </a>
 
+                {/* Post Consultation Support - Links to Patient Portal */}
                 <a
-                  href="#virtual-tour"
+                  href={portalUrl}
                   className="group inline-flex items-center gap-3 px-8 py-4 rounded-2xl text-lg font-semibold
                     bg-white/5 backdrop-blur-sm text-white border border-white/20
                     hover:bg-white/10 hover:border-cyan-500/50 transition-all duration-300"
                 >
                   <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-cyan-500/20 transition-colors">
-                    <Play className="w-5 h-5 text-cyan-400 ml-0.5" />
+                    <MessageSquare className="w-5 h-5 text-cyan-400" />
                   </div>
-                  Virtual Hospital Tour
+                  Post Consultation Support
                 </a>
               </div>
 

@@ -62,10 +62,10 @@ function Header({ data, patientPortalUrl }: HeaderProps) {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Staff Portal URL - Production deployment
+  // Staff Portal URL - Dynamic based on environment
   const clinicPortalUrl = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-  ? 'http://localhost:5173/login'
-  : 'https://admin.medibridge24x7.com/login';
+    ? 'http://localhost:5173/login'
+    : 'https://admin.medibridge24x7.com/login';
   
   const navLinks = [
     { name: 'Our Doctors', href: '#doctors' },
@@ -85,21 +85,21 @@ function Header({ data, patientPortalUrl }: HeaderProps) {
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
-            <a href="#" className="flex items-center gap-3">
-              <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+            <a href="#" className="flex items-center gap-2 sm:gap-3">
+              <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center ${
                 isScrolled 
                   ? 'bg-gradient-to-br from-purple-500 to-violet-600' 
                   : 'bg-white/20'
               }`}>
-                <span className="text-white font-bold">
+                <span className="text-white font-bold text-sm sm:text-base">
                   {organization.name.charAt(0)}
                 </span>
               </div>
               <div>
-                <span className={`font-bold block ${isScrolled ? 'text-gray-900' : 'text-white'}`}>
+                <span className={`font-bold text-sm sm:text-base block ${isScrolled ? 'text-gray-900' : 'text-white'}`}>
                   {organization.name}
                 </span>
-                <span className={`text-xs ${isScrolled ? 'text-purple-600' : 'text-purple-300'}`}>
+                <span className={`text-[10px] sm:text-xs hidden sm:block ${isScrolled ? 'text-purple-600' : 'text-purple-300'}`}>
                   Powered by MediBridge
                 </span>
               </div>
@@ -123,13 +123,13 @@ function Header({ data, patientPortalUrl }: HeaderProps) {
             </nav>
 
             {/* CTA Buttons */}
-            <div className="flex items-center gap-3">
-              {/* Staff Portal */}
+            <div className="flex items-center gap-2 sm:gap-3">
+              {/* Staff Portal - Hidden on mobile */}
               <a
                 href={clinicPortalUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`hidden md:inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                className={`hidden lg:inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                   isScrolled
                     ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
                     : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30'
@@ -139,27 +139,27 @@ function Header({ data, patientPortalUrl }: HeaderProps) {
                 Staff Portal
               </a>
 
-              {/* Patient Portal - Uses relative URL */}
+              {/* Patient Portal - VISIBLE ON ALL SCREENS (Primary CTA) */}
               <a
                 href={patientPortalUrl}
-                className={`hidden md:inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                className={`inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-all ${
                   isScrolled
                     ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
                     : 'bg-white/10 text-white hover:bg-white/20'
                 }`}
               >
-                <MessageSquare className="w-4 h-4" />
-                Patient Portal
+                <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span className="hidden xs:inline">Patient</span> Portal
               </a>
 
-              {/* Call Now */}
+              {/* Call Now - Hidden on smallest screens */}
               {profile.contact_phone && (
                 <a
                   href={`tel:${profile.contact_phone}`}
-                  className="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  className="hidden sm:inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                 >
                   <Phone className="w-4 h-4" />
-                  <span className="hidden sm:inline">Call Now</span>
+                  <span className="hidden md:inline">Call Now</span>
                 </a>
               )}
 
