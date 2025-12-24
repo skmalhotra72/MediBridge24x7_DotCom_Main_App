@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { ArrowRight, FileText, FlaskConical, MessageCircle, Mic, Upload, Camera, X, Check, Loader2, User, Sparkles, LogOut } from 'lucide-react';
+import { ArrowRight, FileText, FlaskConical, MessageCircle, Mic, Upload, Camera, X, Check, Loader2, User, Sparkles, LogOut, Phone } from 'lucide-react';
 import PatientSelector, { PatientInfoBadge } from '@/components/PatientSelector';
 import PatientHealthSummary from '@/components/PatientHealthSummary';
 
@@ -43,6 +43,14 @@ interface Stats {
   completed: number;
   processing: number;
   accuracy: number;
+}
+
+interface OTPSession {
+  patient_id: string;
+  patient_name: string;
+  phone_e164: string;
+  organization_id: string;
+  authenticated_at: string;
 }
 
 // ============================================================
@@ -592,6 +600,10 @@ export default function DashboardPage() {
   const [userName, setUserName] = useState('');
   const [loading, setLoading] = useState(true);
   
+  // Auth type tracking
+  const [authType, setAuthType] = useState<'supabase' | 'otp' | null>(null);
+  const [otpSession, setOtpSession] = useState<OTPSession | null>(null);
+  
   // Theme state - loaded from database
   const [theme, setTheme] = useState<ThemePreset>(THEME_PRESETS.cyan);
 
@@ -603,7 +615,7 @@ export default function DashboardPage() {
         const { data: orgData } = await supabase
           .from('organizations')
           .select('id, name')
-          .eq('subdomain', org)
+          .eq('slug', org)
           .single();
         
         if (orgData) {
@@ -628,50 +640,125 @@ export default function DashboardPage() {
           }
         }
 
-        // Get user
+        // ============================================================
+        // AUTH CHECK: Supabase Auth OR OTP Session
+        // ============================================================
+        
+        // Check for Supabase Auth user
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
+
+        // Check for OTP session in localStorage
+        let storedOtpSession: OTPSession | null = null;
+        if (typeof window !== 'undefined') {
+          const stored = localStorage.getItem('medibridge_patient');
+          if (stored) {
+            try {
+              storedOtpSession = JSON.parse(stored);
+              // Check if session is still valid (7 days)
+              if (storedOtpSession) {
+                const authTime = new Date(storedOtpSession.authenticated_at).getTime();
+                const now = Date.now();
+                const sevenDays = 7 * 24 * 60 * 60 * 1000;
+                if (now - authTime > sevenDays) {
+                  localStorage.removeItem('medibridge_patient');
+                  storedOtpSession = null;
+                }
+              }
+            } catch (e) {
+              localStorage.removeItem('medibridge_patient');
+              storedOtpSession = null;
+            }
+          }
+        }
+
+        // Redirect to auth if neither session exists
+        if (!user && !storedOtpSession) {
           router.push(`/${org}/auth`);
           return;
         }
-        setUserId(user.id);
-        setUserName(user.user_metadata?.name || user.email?.split('@')[0] || 'User');
 
-        // Auto-load first patient
-        const { data: firstPatient } = await supabase
-          .from('patients')
-          .select('*')
-          .eq('auth_user_id', user.id)
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .maybeSingle();
+        // Set user info from either source
+        if (user) {
+          setAuthType('supabase');
+          setUserId(user.id);
+          setUserName(user.user_metadata?.name || user.email?.split('@')[0] || 'User');
 
-        if (firstPatient) {
-          setSelectedPatient(firstPatient as Patient);
-        }
+          // Auto-load first patient for Supabase auth users
+          const { data: firstPatient } = await supabase
+            .from('patients')
+            .select('*')
+            .eq('auth_user_id', user.id)
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .maybeSingle();
 
-        // Get prescriptions
-        const { data: prescriptions } = await supabase
-          .from('prescriptions')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(10);
+          if (firstPatient) {
+            setSelectedPatient(firstPatient as Patient);
+          }
 
-        if (prescriptions) {
-          setRecentPrescriptions(prescriptions);
-          
-          // Calculate stats
-          const total = prescriptions.length;
-          const completed = prescriptions.filter(p => p.status === 'analyzed' || p.status === 'completed').length;
-          const processing = prescriptions.filter(p => p.status === 'processing' || p.status === 'pending').length;
-          
-          setStats({
-            total,
-            completed,
-            processing,
-            accuracy: 100
-          });
+          // Get prescriptions for Supabase user
+          const { data: prescriptions } = await supabase
+            .from('prescriptions')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+          if (prescriptions) {
+            setRecentPrescriptions(prescriptions);
+            
+            // Calculate stats
+            const total = prescriptions.length;
+            const completed = prescriptions.filter(p => p.status === 'analyzed' || p.status === 'completed').length;
+            const processing = prescriptions.filter(p => p.status === 'processing' || p.status === 'pending').length;
+            
+            setStats({
+              total,
+              completed,
+              processing,
+              accuracy: 100
+            });
+          }
+        } else if (storedOtpSession) {
+          setAuthType('otp');
+          setOtpSession(storedOtpSession);
+          setUserId(storedOtpSession.patient_id);
+          setUserName(storedOtpSession.patient_name || 'Patient');
+
+          // Load patient data for OTP user
+          const { data: patientData } = await supabase
+            .from('patients')
+            .select('*')
+            .eq('id', storedOtpSession.patient_id)
+            .single();
+
+          if (patientData) {
+            setSelectedPatient(patientData as Patient);
+          }
+
+          // Get prescriptions for OTP patient
+          const { data: prescriptions } = await supabase
+            .from('prescriptions')
+            .select('*')
+            .eq('patient_id', storedOtpSession.patient_id)
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+          if (prescriptions) {
+            setRecentPrescriptions(prescriptions);
+            
+            // Calculate stats
+            const total = prescriptions.length;
+            const completed = prescriptions.filter(p => p.status === 'analyzed' || p.status === 'completed').length;
+            const processing = prescriptions.filter(p => p.status === 'processing' || p.status === 'pending').length;
+            
+            setStats({
+              total,
+              completed,
+              processing,
+              accuracy: 100
+            });
+          }
         }
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -683,16 +770,35 @@ export default function DashboardPage() {
     fetchData();
   }, [org, router, supabase]);
 
-  // Handle logout
+  // Handle logout - clears both Supabase and OTP sessions
   const handleLogout = async () => {
+    // Clear Supabase session
     await supabase.auth.signOut();
+    
+    // Clear OTP session from localStorage
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('medibridge_patient');
+    }
+    
     router.push(`/${org}/auth`);
   };
 
   // Handle action that requires patient selection
   const handleActionWithPatient = (action: 'prescription' | 'lab' | 'chat') => {
-    setPendingAction(action);
-    setShowPatientSelector(true);
+    // For OTP users, patient is already selected (themselves)
+    if (authType === 'otp' && selectedPatient) {
+      if (action === 'prescription') {
+        setShowPrescriptionModal(true);
+      } else if (action === 'lab') {
+        setShowLabReportModal(true);
+      } else if (action === 'chat') {
+        router.push(`/${org}/chat?patient_id=${selectedPatient.id}`);
+      }
+    } else {
+      // For Supabase users, show patient selector
+      setPendingAction(action);
+      setShowPatientSelector(true);
+    }
   };
 
   // After patient is selected
@@ -722,12 +828,12 @@ export default function DashboardPage() {
     setIsUploading(true);
     
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
+      // For OTP users, we use the patient_id directly
+      const uploadUserId = authType === 'supabase' ? userId : selectedPatient.id;
 
       // Upload file to storage
       const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      const fileName = `${uploadUserId}/${Date.now()}.${fileExt}`;
       
       const { error: uploadError } = await supabase.storage
         .from('prescriptions')
@@ -744,7 +850,7 @@ export default function DashboardPage() {
       const { data: prescription, error: insertError } = await supabase
         .from('prescriptions')
         .insert({
-          user_id: user.id,
+          user_id: authType === 'supabase' ? userId : null,
           organization_id: orgId,
           patient_id: selectedPatient.id,
           file_url: publicUrl,
@@ -772,9 +878,9 @@ export default function DashboardPage() {
           prescription_id: prescription.id,
           file_url: publicUrl,
           file_type: file.type,
-          user_id: user.id,
-          user_name: user.user_metadata?.name || 'User',
-          user_email: user.email,
+          user_id: uploadUserId,
+          user_name: userName,
+          user_email: authType === 'otp' && otpSession ? `${otpSession.phone_e164}@otp.medibridge.in` : '',
           organization_id: orgId,
           organization: org,
           clinic_name: orgName,
@@ -786,7 +892,8 @@ export default function DashboardPage() {
           query: question || 'Please analyze this document',
           channel: 'web',
           document_type: documentType,
-          chat_session_id: prescription.id
+          chat_session_id: prescription.id,
+          auth_type: authType
         })
       });
 
@@ -843,13 +950,16 @@ export default function DashboardPage() {
             {/* Selected Patient Badge */}
             {selectedPatient && (
               <button
-                onClick={() => setShowPatientSelector(true)}
+                onClick={() => authType === 'supabase' && setShowPatientSelector(true)}
                 className={`hidden sm:flex items-center gap-2 ${theme.primary.bgLight} border ${theme.primary.border} 
-                         rounded-full px-3 py-1.5 hover:${theme.primary.bgLighter} transition-colors`}
+                         rounded-full px-3 py-1.5 hover:${theme.primary.bgLighter} transition-colors
+                         ${authType === 'otp' ? 'cursor-default' : 'cursor-pointer'}`}
               >
                 <User className={`w-4 h-4 ${theme.primary.text}`} />
                 <span className={`${theme.primary.textLight} text-sm font-medium`}>{selectedPatient.full_name}</span>
-                <span className={`${theme.primary.text} opacity-70 text-xs`}>Change</span>
+                {authType === 'supabase' && (
+                  <span className={`${theme.primary.text} opacity-70 text-xs`}>Change</span>
+                )}
               </button>
             )}
             
@@ -864,13 +974,22 @@ export default function DashboardPage() {
             
             {/* User Info & Logout */}
             <div className="flex items-center gap-3 ml-2 pl-4 border-l border-slate-700">
-              <div className="flex items-center gap-2 bg-emerald-500/20 px-3 py-1.5 rounded-full">
-                <div className="w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center">
-                  <span className="text-white text-xs font-bold">
-                    {userName.charAt(0).toUpperCase()}
-                  </span>
+              <div className={`flex items-center gap-2 ${authType === 'otp' ? 'bg-green-500/20' : 'bg-emerald-500/20'} px-3 py-1.5 rounded-full`}>
+                <div className={`w-6 h-6 ${authType === 'otp' ? 'bg-green-500' : 'bg-emerald-500'} rounded-full flex items-center justify-center`}>
+                  {authType === 'otp' ? (
+                    <Phone className="w-3 h-3 text-white" />
+                  ) : (
+                    <span className="text-white text-xs font-bold">
+                      {userName.charAt(0).toUpperCase()}
+                    </span>
+                  )}
                 </div>
-                <span className="text-emerald-300 text-sm font-medium hidden sm:inline">{userName}</span>
+                <span className={`${authType === 'otp' ? 'text-green-300' : 'text-emerald-300'} text-sm font-medium hidden sm:inline`}>
+                  {userName}
+                </span>
+                {authType === 'otp' && (
+                  <span className="text-green-400/60 text-xs hidden md:inline">WhatsApp</span>
+                )}
               </div>
               <button
                 onClick={handleLogout}
@@ -996,17 +1115,19 @@ export default function DashboardPage() {
         </div>
       </main>
 
-      {/* Patient Selector Modal */}
-      <PatientSelector
-        isOpen={showPatientSelector}
-        onClose={() => {
-          setShowPatientSelector(false);
-          setPendingAction(null);
-        }}
-        onPatientSelected={handlePatientSelected}
-        userId={userId}
-        organizationId={orgId}
-      />
+      {/* Patient Selector Modal - Only for Supabase auth users */}
+      {authType === 'supabase' && (
+        <PatientSelector
+          isOpen={showPatientSelector}
+          onClose={() => {
+            setShowPatientSelector(false);
+            setPendingAction(null);
+          }}
+          onPatientSelected={handlePatientSelected}
+          userId={userId}
+          organizationId={orgId}
+        />
+      )}
 
       {/* Upload Modals - Pass theme */}
       <UploadModal
