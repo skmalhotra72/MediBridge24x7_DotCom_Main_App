@@ -3,12 +3,20 @@
 import { MessageCircle } from 'lucide-react';
 
 interface WhatsAppButtonProps {
-  phoneNumber: string;
+  clinicName?: string;  // Clinic name for personalized message
 }
 
-export default function WhatsAppButton({ phoneNumber }: WhatsAppButtonProps) {
-  const cleanNumber = phoneNumber.replace(/\D/g, '');
-  const whatsappUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent('Hi! I would like to book an appointment.')}`;
+// MediBridge WhatsApp Business Number - FIXED for all clinic websites
+const MEDIBRIDGE_WHATSAPP = '917042191854';
+
+export default function WhatsAppButton({ 
+  clinicName = 'the clinic'
+}: WhatsAppButtonProps) {
+  
+  // Personalized message based on which clinic website triggered it
+  const message = `Hi! I visited ${clinicName} website and need help with my prescription or health query.`;
+  
+  const whatsappUrl = `https://wa.me/${MEDIBRIDGE_WHATSAPP}?text=${encodeURIComponent(message)}`;
 
   return (
     <a
