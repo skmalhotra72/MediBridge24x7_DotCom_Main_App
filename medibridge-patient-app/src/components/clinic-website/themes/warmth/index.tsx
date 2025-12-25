@@ -39,7 +39,7 @@ export default function WarmthTemplate({ data }: WarmthTemplateProps) {
         <ContactSection data={data} />
       </main>
       <Footer data={data} />
-<WhatsAppButton clinicName={data.clinicProfile?.clinic_name || data.organization.name} />
+      <WhatsAppButton clinicName={data.organization.name} />
     </div>
   );
 }
