@@ -13,6 +13,7 @@ import {
   Menu,
   X,
   ChevronDown,
+  UserCog,
 } from 'lucide-react';
 
 interface PortalLayoutProps {
@@ -26,6 +27,7 @@ const navigationItems = [
   { name: 'Lab Orders', path: '/portal/lab-orders', icon: FlaskConical },
   { name: 'Chat', path: '/portal/chat', icon: MessageSquare },
   { name: 'Escalations', path: '/portal/escalations', icon: AlertTriangle, badge: true },
+  { name: 'Users', path: '/portal/users', icon: UserCog },
 ];
 
 export const PortalLayout = ({ children }: PortalLayoutProps) => {

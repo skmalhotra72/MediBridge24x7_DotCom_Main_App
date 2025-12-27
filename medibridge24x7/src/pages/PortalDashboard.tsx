@@ -13,6 +13,7 @@ import { LabReportUpload } from './portal/LabReportUpload';
 import { ChatSessions } from './portal/ChatSessions';
 import { ChatRoom } from './portal/ChatRoom';
 import { EscalationsList } from './portal/EscalationsList';
+import { UsersList } from './portal/UsersList';
 
 export const PortalDashboard = () => {
   return (
@@ -33,6 +34,7 @@ export const PortalDashboard = () => {
         <Route path="/chat" element={<ChatSessions />} />
         <Route path="/chat/:sessionId" element={<ChatRoom />} />
         <Route path="/escalations" element={<EscalationsList />} />
+        <Route path="/users" element={<UsersList />} />
       </Routes>
     </PortalLayout>
   );

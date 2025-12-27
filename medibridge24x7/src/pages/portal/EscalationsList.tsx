@@ -21,7 +21,10 @@ import {
   Mail,
   CheckCircle,
   XCircle,
-  Loader2
+  Loader2,
+  Timer,
+  PhoneCall,
+  UserCheck
 } from 'lucide-react';
 
 // ============================================
@@ -68,6 +71,12 @@ interface EscalationListResponse {
   page_size: number;
   total_pages: number;
   data: Escalation[];
+}
+
+interface Doctor {
+  id: string;
+  full_name: string;
+  specialization: string | null;
 }
 
 // ============================================
@@ -151,6 +160,271 @@ function StatusBadge({ status, size = 'sm' }: { status: string | null; size?: 's
 }
 
 // ============================================
+// DEADLINE TIMER COMPONENT
+// ============================================
+
+interface DeadlineTimerProps {
+  deadline: string | null;
+  status: string | null;
+}
+
+function DeadlineTimer({ deadline, status }: DeadlineTimerProps) {
+  const [timeLeft, setTimeLeft] = useState<string>('');
+  const [urgency, setUrgency] = useState<'normal' | 'warning' | 'critical' | 'overdue'>('normal');
+
+  useEffect(() => {
+    if (!deadline || status === 'resolved' || status === 'closed') {
+      setTimeLeft('');
+      return;
+    }
+
+    const calculateTimeLeft = () => {
+      const deadlineDate = new Date(deadline);
+      const now = new Date();
+      const diffMs = deadlineDate.getTime() - now.getTime();
+
+      if (diffMs <= 0) {
+        setUrgency('overdue');
+        const overdueMs = Math.abs(diffMs);
+        const overdueMins = Math.floor(overdueMs / 60000);
+        const overdueHours = Math.floor(overdueMins / 60);
+        if (overdueHours > 0) {
+          setTimeLeft(`${overdueHours}h ${overdueMins % 60}m overdue`);
+        } else {
+          setTimeLeft(`${overdueMins}m overdue`);
+        }
+        return;
+      }
+
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMins / 60);
+      const remainingMins = diffMins % 60;
+
+      if (diffMins <= 30) {
+        setUrgency('critical');
+      } else if (diffMins <= 60) {
+        setUrgency('warning');
+      } else {
+        setUrgency('normal');
+      }
+
+      if (diffHours > 0) {
+        setTimeLeft(`${diffHours}h ${remainingMins}m left`);
+      } else {
+        setTimeLeft(`${remainingMins}m left`);
+      }
+    };
+
+    calculateTimeLeft();
+    const interval = setInterval(calculateTimeLeft, 60000);
+
+    return () => clearInterval(interval);
+  }, [deadline, status]);
+
+  if (!timeLeft) return null;
+
+  const urgencyStyles = {
+    normal: 'bg-slate-700/50 text-slate-300',
+    warning: 'bg-orange-500/20 text-orange-400 animate-pulse',
+    critical: 'bg-red-500/20 text-red-400 animate-pulse',
+    overdue: 'bg-red-600/30 text-red-300 border border-red-500/50'
+  };
+
+  return (
+    <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium ${urgencyStyles[urgency]}`}>
+      <Timer className="w-3 h-3" />
+      <span>{timeLeft}</span>
+    </div>
+  );
+}
+
+// ============================================
+// QUICK RESOLVE MODAL COMPONENT
+// ============================================
+
+interface QuickResolveModalProps {
+  escalation: Escalation | null;
+  onClose: () => void;
+  onConfirm: (notes: string) => void;
+  isLoading: boolean;
+}
+
+function QuickResolveModal({ escalation, onClose, onConfirm, isLoading }: QuickResolveModalProps) {
+  const [notes, setNotes] = useState('');
+
+  if (!escalation) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl">
+        {/* Header */}
+        <div className="p-5 border-b border-slate-700">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
+              <CheckCircle className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-white">Resolve Escalation</h3>
+              <p className="text-sm text-slate-400">
+                For {escalation.patient?.name || 'patient'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-5">
+          <label className="block text-sm font-medium text-slate-300 mb-2">
+            Resolution Notes (Optional)
+          </label>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="e.g., Spoke with patient, issue resolved..."
+            className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 resize-none"
+            rows={3}
+          />
+        </div>
+
+        {/* Footer */}
+        <div className="p-5 border-t border-slate-700 flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={isLoading}
+            className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onConfirm(notes)}
+            disabled={isLoading}
+            className="flex-1 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-xl font-medium transition-all flex items-center justify-center gap-2"
+          >
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <CheckCircle className="w-4 h-4" />
+            )}
+            Mark Resolved
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// ASSIGN MODAL COMPONENT
+// ============================================
+
+interface AssignModalProps {
+  escalation: Escalation | null;
+  doctors: Doctor[];
+  onClose: () => void;
+  onConfirm: (doctorId: string) => void;
+  isLoading: boolean;
+}
+
+function AssignModal({ escalation, doctors, onClose, onConfirm, isLoading }: AssignModalProps) {
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>('');
+
+  // Reset selection when modal opens
+  useEffect(() => {
+    if (escalation) {
+      setSelectedDoctorId('');
+    }
+  }, [escalation]);
+
+  if (!escalation) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl">
+        {/* Header */}
+        <div className="p-5 border-b border-slate-700">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
+              <UserCheck className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-white">Assign Escalation</h3>
+              <p className="text-sm text-slate-400">
+                For {escalation.patient?.name || 'patient'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-5">
+          <label className="block text-sm font-medium text-slate-300 mb-2">
+            Select Doctor
+          </label>
+          <select
+            value={selectedDoctorId}
+            onChange={(e) => setSelectedDoctorId(e.target.value)}
+            className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-purple-500"
+          >
+            <option value="">-- Select a doctor --</option>
+            {doctors.map((doctor) => (
+              <option key={doctor.id} value={doctor.id}>
+                {doctor.full_name} {doctor.specialization ? `(${doctor.specialization})` : ''}
+              </option>
+            ))}
+          </select>
+
+          {/* Selected Doctor Preview */}
+          {selectedDoctorId && (
+            <div className="mt-4 p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
+              <p className="text-sm text-purple-300">
+                <span className="font-medium">Assigning to:</span>{' '}
+                {doctors.find(d => d.id === selectedDoctorId)?.full_name}
+              </p>
+              {doctors.find(d => d.id === selectedDoctorId)?.specialization && (
+                <p className="text-xs text-purple-400 mt-1">
+                  {doctors.find(d => d.id === selectedDoctorId)?.specialization}
+                </p>
+              )}
+            </div>
+          )}
+
+          {doctors.length === 0 && (
+            <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
+              <p className="text-sm text-yellow-400">
+                No doctors available. Please add doctors to your organization first.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-5 border-t border-slate-700 flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={isLoading}
+            className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => selectedDoctorId && onConfirm(selectedDoctorId)}
+            disabled={isLoading || !selectedDoctorId}
+            className="flex-1 py-2.5 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white rounded-xl font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <UserCheck className="w-4 h-4" />
+            )}
+            Assign Doctor
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
 // ESCALATION DETAIL MODAL
 // ============================================
 
@@ -181,7 +455,7 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
         .from('escalations')
         .update({ 
           status: newStatus,
-          responded_at: newStatus === 'resolved' ? new Date().toISOString() : null
+          resolved_at: newStatus === 'resolved' ? new Date().toISOString() : null
         })
         .eq('id', escalation.id);
 
@@ -235,19 +509,35 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
           <div className="flex items-center gap-3 flex-wrap">
             <SeverityBadge severity={escalation.severity} size="md" />
             <StatusBadge status={escalation.status} size="md" />
+            <DeadlineTimer deadline={escalation.response_deadline} status={escalation.status} />
             <span className="text-sm text-slate-500">
               <Clock className="w-4 h-4 inline mr-1" />
               {formatDate(escalation.created_at)}
             </span>
           </div>
 
+          {/* Patient's Reason - Highlighted */}
+          {escalation.reason && (
+            <div className="p-4 bg-cyan-500/10 rounded-xl border border-cyan-500/30">
+              <h3 className="text-sm font-medium text-cyan-400 mb-2 flex items-center gap-2">
+                <MessageSquare className="w-4 h-4" />
+                Patient's Reason
+              </h3>
+              <p className="text-cyan-100 text-base leading-relaxed">
+                "{escalation.reason}"
+              </p>
+            </div>
+          )}
+
           {/* Summary */}
-          <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
-            <h3 className="text-sm font-medium text-slate-400 mb-2">Escalation Summary</h3>
-            <p className="text-white">
-              {escalation.escalation_summary || escalation.reason || 'No summary provided'}
-            </p>
-          </div>
+          {escalation.escalation_summary && escalation.escalation_summary !== escalation.reason && (
+            <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+              <h3 className="text-sm font-medium text-slate-400 mb-2">Escalation Summary</h3>
+              <p className="text-white">
+                {escalation.escalation_summary}
+              </p>
+            </div>
+          )}
 
           {/* Patient Information */}
           {escalation.patient && (
@@ -293,6 +583,17 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Assigned Doctor */}
+          {escalation.doctor_name && (
+            <div className="p-4 bg-purple-500/10 rounded-xl border border-purple-500/30">
+              <h3 className="text-sm font-medium text-purple-400 mb-2 flex items-center gap-2">
+                <UserCheck className="w-4 h-4" />
+                Assigned Doctor
+              </h3>
+              <p className="text-purple-100">Dr. {escalation.doctor_name}</p>
             </div>
           )}
 
@@ -389,10 +690,17 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
 }
 
 // ============================================
-// ESCALATION CARD COMPONENT
+// ESCALATION CARD COMPONENT (ENHANCED)
 // ============================================
 
-function EscalationCard({ escalation, onClick }: { escalation: Escalation; onClick: () => void }) {
+interface EscalationCardProps {
+  escalation: Escalation;
+  onClick: () => void;
+  onQuickResolve: (escalation: Escalation) => void;
+  onAssign: (escalation: Escalation) => void;
+}
+
+function EscalationCard({ escalation, onClick, onQuickResolve, onAssign }: EscalationCardProps) {
   const formatDate = (date: string) => {
     const d = new Date(date);
     const now = new Date();
@@ -410,6 +718,7 @@ function EscalationCard({ escalation, onClick }: { escalation: Escalation; onCli
   };
 
   const isUrgent = escalation.severity === 'critical' || escalation.severity === 'high';
+  const isResolved = escalation.status === 'resolved' || escalation.status === 'closed';
 
   return (
     <div 
@@ -427,16 +736,32 @@ function EscalationCard({ escalation, onClick }: { escalation: Escalation; onCli
           <SeverityBadge severity={escalation.severity} />
           <StatusBadge status={escalation.status} />
         </div>
-        <div className="flex items-center gap-1 text-xs text-slate-500">
-          <Clock className="w-3 h-3" />
-          <span>{formatDate(escalation.created_at)}</span>
+        <div className="flex items-center gap-2">
+          <DeadlineTimer deadline={escalation.response_deadline} status={escalation.status} />
+          <div className="flex items-center gap-1 text-xs text-slate-500">
+            <Clock className="w-3 h-3" />
+            <span>{formatDate(escalation.created_at)}</span>
+          </div>
         </div>
       </div>
 
-      {/* Reason/Summary */}
+      {/* Summary Title */}
       <p className="text-white font-medium mb-3 line-clamp-2">
-        {escalation.reason || escalation.escalation_summary || 'Escalation needs attention'}
+        {escalation.escalation_summary || 'Escalation needs attention'}
       </p>
+
+      {/* Patient's Reason - Highlighted Cyan Box */}
+      {escalation.reason && (
+        <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/30 mb-4">
+          <div className="flex items-center gap-2 mb-1">
+            <MessageSquare className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="text-xs font-semibold text-cyan-400 uppercase tracking-wide">Patient's Reason</span>
+          </div>
+          <p className="text-sm text-cyan-100 line-clamp-2">
+            "{escalation.reason}"
+          </p>
+        </div>
+      )}
 
       {/* Patient Info */}
       {escalation.patient && (
@@ -458,6 +783,14 @@ function EscalationCard({ escalation, onClick }: { escalation: Escalation; onCli
               <span>{escalation.patient.phone}</span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Assigned Doctor Badge */}
+      {escalation.doctor_name && (
+        <div className="flex items-center gap-2 mb-4 p-2 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+          <UserCheck className="w-3.5 h-3.5 text-purple-400" />
+          <span className="text-xs text-purple-300">Assigned to Dr. {escalation.doctor_name}</span>
         </div>
       )}
 
@@ -487,24 +820,64 @@ function EscalationCard({ escalation, onClick }: { escalation: Escalation; onCli
         </div>
       )}
 
-      {/* Footer */}
-      <div className="flex items-center justify-between pt-3 border-t border-slate-700/50">
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          {escalation.escalation_type && (
-            <span className="px-2 py-0.5 bg-slate-700/50 rounded-full capitalize">
-              {escalation.escalation_type.replace('_', ' ')}
-            </span>
-          )}
-          {escalation.doctor_name && (
-            <span>Dr. {escalation.doctor_name}</span>
-          )}
-        </div>
+      {/* Type Tag */}
+      <div className="flex items-center gap-2 text-xs text-slate-500 mb-3">
+        {escalation.escalation_type && (
+          <span className="px-2 py-0.5 bg-slate-700/50 rounded-full capitalize">
+            {escalation.escalation_type.replace('_', ' ')}
+          </span>
+        )}
+      </div>
+
+      {/* Quick Actions Footer */}
+      <div className="flex items-center gap-2 pt-3 border-t border-slate-700/50">
+        {/* Call Patient */}
+        {escalation.patient?.phone && (
+          <a
+            href={`tel:${escalation.patient.phone}`}
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg text-xs font-medium transition-colors"
+          >
+            <PhoneCall className="w-3.5 h-3.5" />
+            <span>Call</span>
+          </a>
+        )}
+
+        {/* Quick Resolve */}
+        {!isResolved && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onQuickResolve(escalation);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 rounded-lg text-xs font-medium transition-colors"
+          >
+            <CheckCircle className="w-3.5 h-3.5" />
+            <span>Resolve</span>
+          </button>
+        )}
+
+        {/* Assign */}
+        {!escalation.assigned_to && !isResolved && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onAssign(escalation);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 rounded-lg text-xs font-medium transition-colors"
+          >
+            <UserCheck className="w-3.5 h-3.5" />
+            <span>Assign</span>
+          </button>
+        )}
+
+        {/* View Details - pushed to right */}
         <button 
           onClick={(e) => {
             e.stopPropagation();
             onClick();
           }}
-          className="flex items-center gap-1 text-xs text-teal-400 hover:text-teal-300 cursor-pointer"
+          className="flex items-center gap-1 ml-auto text-xs text-teal-400 hover:text-teal-300 cursor-pointer"
         >
           <Eye className="w-3 h-3" />
           <span>View Details</span>
@@ -532,6 +905,15 @@ export function EscalationsList() {
   const [statusFilter, setStatusFilter] = useState('');
   const [severityFilter, setSeverityFilter] = useState('');
   const [selectedEscalation, setSelectedEscalation] = useState<Escalation | null>(null);
+  
+  // Quick resolve state
+  const [resolveModalEscalation, setResolveModalEscalation] = useState<Escalation | null>(null);
+  const [isResolving, setIsResolving] = useState(false);
+
+  // Assign modal state
+  const [assignModalEscalation, setAssignModalEscalation] = useState<Escalation | null>(null);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
 
   const pageSize = 12;
 
@@ -565,6 +947,30 @@ export function EscalationsList() {
     }
   }, [organization?.id, searchTerm, dateFrom, dateTo, statusFilter, severityFilter, currentPage]);
 
+  // Fetch doctors for assignment dropdown
+  useEffect(() => {
+    const fetchDoctors = async () => {
+      if (!organization?.id) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('doctor_profiles')
+          .select('id, full_name, specialization')
+          .eq('organization_id', organization.id)
+          .eq('is_active', true)
+          .order('full_name');
+        
+        if (!error && data) {
+          setDoctors(data);
+        }
+      } catch (error) {
+        console.error('Error fetching doctors:', error);
+      }
+    };
+    
+    fetchDoctors();
+  }, [organization?.id]);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchEscalations();
@@ -592,6 +998,75 @@ export function EscalationsList() {
     );
     if (selectedEscalation?.id === id) {
       setSelectedEscalation(prev => prev ? { ...prev, status: newStatus } : null);
+    }
+  };
+
+  // Handle Quick Resolve
+  const handleQuickResolve = async (notes: string) => {
+    if (!resolveModalEscalation) return;
+
+    setIsResolving(true);
+    try {
+      const { error } = await supabase
+        .from('escalations')
+        .update({
+          status: 'resolved',
+          resolved_at: new Date().toISOString()
+        })
+        .eq('id', resolveModalEscalation.id);
+
+      if (!error) {
+        handleStatusUpdate(resolveModalEscalation.id, 'resolved');
+        setResolveModalEscalation(null);
+      } else {
+        console.error('Error resolving escalation:', error);
+        alert('Failed to resolve escalation. Please try again.');
+      }
+    } catch (err) {
+      console.error('Error resolving escalation:', err);
+      alert('Failed to resolve escalation. Please try again.');
+    } finally {
+      setIsResolving(false);
+    }
+  };
+
+  // Handle Assign to Doctor
+  const handleAssign = async (doctorId: string) => {
+    if (!assignModalEscalation) return;
+
+    setIsAssigning(true);
+    try {
+      // Get doctor name for display
+      const doctor = doctors.find(d => d.id === doctorId);
+      
+      const { error } = await supabase
+        .from('escalations')
+        .update({
+          assigned_to: doctorId,
+          doctor_id: doctorId,
+          status: 'in_progress'
+        })
+        .eq('id', assignModalEscalation.id);
+
+      if (!error) {
+        // Update local state
+        setEscalations(prev =>
+          prev.map(e =>
+            e.id === assignModalEscalation.id
+              ? { ...e, assigned_to: doctorId, doctor_id: doctorId, doctor_name: doctor?.full_name || null, status: 'in_progress' }
+              : e
+          )
+        );
+        setAssignModalEscalation(null);
+      } else {
+        console.error('Error assigning escalation:', error);
+        alert('Failed to assign escalation. Please try again.');
+      }
+    } catch (err) {
+      console.error('Error assigning escalation:', err);
+      alert('Failed to assign escalation. Please try again.');
+    } finally {
+      setIsAssigning(false);
     }
   };
 
@@ -730,6 +1205,8 @@ export function EscalationsList() {
                 key={escalation.id}
                 escalation={escalation}
                 onClick={() => setSelectedEscalation(escalation)}
+                onQuickResolve={(e) => setResolveModalEscalation(e)}
+                onAssign={(e) => setAssignModalEscalation(e)}
               />
             ))}
           </div>
@@ -769,6 +1246,23 @@ export function EscalationsList() {
           onStatusUpdate={handleStatusUpdate}
         />
       )}
+
+      {/* Quick Resolve Modal */}
+      <QuickResolveModal
+        escalation={resolveModalEscalation}
+        onClose={() => setResolveModalEscalation(null)}
+        onConfirm={handleQuickResolve}
+        isLoading={isResolving}
+      />
+
+      {/* Assign Modal */}
+      <AssignModal
+        escalation={assignModalEscalation}
+        doctors={doctors}
+        onClose={() => setAssignModalEscalation(null)}
+        onConfirm={handleAssign}
+        isLoading={isAssigning}
+      />
     </div>
   );
 }
