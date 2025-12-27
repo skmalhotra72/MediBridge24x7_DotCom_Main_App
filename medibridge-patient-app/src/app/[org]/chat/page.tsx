@@ -1406,6 +1406,8 @@ export default function ChatPage() {
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
   const [escalating, setEscalating] = useState(false);
   const [escalated, setEscalated] = useState(false);
+  const [showEscalationModal, setShowEscalationModal] = useState(false);
+  const [escalationReason, setEscalationReason] = useState('');
   const [orgId, setOrgId] = useState<string | null>(null);
   const [processingStatus, setProcessingStatus] = useState<string>('pending');
   const [processingProgress, setProcessingProgress] = useState<string>('');
@@ -2011,7 +2013,169 @@ export default function ChatPage() {
     const file = new File([imageBlob], `prescription_photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
     await handleFileUpload(file, 'prescription', 'Please analyze this prescription and explain the medicines');
   };
+// ============================================
+// CONNECT TO DOCTOR MODAL COMPONENT
+// ============================================
 
+interface ConnectToDoctorModalProps {
+  onClose: () => void;
+  onSubmit: (reason: string) => void;
+  isSubmitting: boolean;
+  isDark: boolean;
+  orgName: string;
+  patientName?: string;
+}
+
+const ConnectToDoctorModal = ({
+  onClose,
+  onSubmit,
+  isSubmitting,
+  isDark,
+  orgName,
+  patientName 
+}: ConnectToDoctorModalProps) => {
+  const [reason, setReason] = useState('');
+  const colors = getThemeColors(isDark);
+
+  const handleSubmit = () => {
+    onSubmit(reason);
+  };
+
+  const quickReasons = [
+    'Side effects from medicine',
+    'Dosage clarification needed',
+    'Symptoms not improving',
+    'New symptoms appeared',
+    'Need prescription refill',
+    'General health concern'
+  ];
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[10001] p-4">
+      <div className={`${colors.bgSecondary} rounded-2xl max-w-md w-full shadow-2xl border ${colors.borderLight} max-h-[90vh] overflow-y-auto`}>
+        {/* Header */}
+        <div className={`p-4 border-b ${colors.border} flex items-center justify-between`}>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl flex items-center justify-center">
+              <UserPlus className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className={`${colors.text} font-semibold`}>Connect to Doctor</h3>
+              <p className={`${colors.textSecondary} text-xs`}>Request a callback from {orgName}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={isSubmitting}
+            className={`p-2 ${isDark ? 'hover:bg-slate-700' : 'hover:bg-gray-100'} rounded-lg transition-colors`}
+          >
+            <X className={`w-5 h-5 ${colors.textSecondary}`} />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-4 space-y-4">
+          {/* Patient Info */}
+          {patientName && (
+            <div className={`${colors.cyanBg} rounded-lg p-3 border ${colors.cyanBorder}`}>
+              <p className={`text-xs ${colors.textSecondary}`}>Requesting callback for:</p>
+              <p className={`text-sm font-medium ${colors.cyan}`}>{patientName}</p>
+            </div>
+          )}
+
+          {/* Info Box */}
+          <div className={`${isDark ? 'bg-green-500/10 border-green-500/30' : 'bg-green-50 border-green-200'} rounded-lg p-3 border`}>
+            <p className={`text-sm ${isDark ? 'text-green-400' : 'text-green-700'}`}>
+              📞 A doctor from <span className="font-semibold">{orgName}</span> will contact you within <span className="font-semibold">2 hours</span>.
+            </p>
+          </div>
+
+          {/* Quick Reasons */}
+          <div>
+            <label className={`block text-sm font-medium ${colors.textSecondary} mb-2`}>
+              Quick select a reason:
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {quickReasons.map((quickReason, index) => (
+                <button
+                  key={index}
+                  onClick={() => setReason(quickReason)}
+                  className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
+                    reason === quickReason
+                      ? 'bg-cyan-500 text-white border-cyan-500'
+                      : `${colors.border} ${colors.text} ${isDark ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`
+                  }`}
+                >
+                  {quickReason}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Custom Reason */}
+          <div>
+            <label className={`block text-sm font-medium ${colors.textSecondary} mb-2`}>
+              Or describe your concern:
+            </label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g., I'm experiencing dizziness after taking the medicine..."
+              className={`w-full px-3 py-2.5 ${colors.bgInput} border ${colors.borderInput} rounded-xl ${colors.text} ${colors.placeholder} focus:outline-none focus:border-cyan-500 resize-none text-sm`}
+              rows={3}
+              maxLength={500}
+            />
+            <p className={`text-xs ${colors.textMuted} mt-1 text-right`}>
+              {reason.length}/500 characters
+            </p>
+          </div>
+
+          {/* Emergency Warning */}
+          <div className={`${isDark ? 'bg-amber-500/10 border-amber-500/30' : 'bg-amber-50 border-amber-200'} rounded-lg p-3 border`}>
+            <p className={`text-xs ${isDark ? 'text-amber-400' : 'text-amber-700'} flex items-start gap-2`}>
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>
+                <strong>For emergencies:</strong> Please call <strong>102</strong> or visit the nearest hospital immediately.
+              </span>
+            </p>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className={`p-4 border-t ${colors.border} flex gap-3`}>
+          <button
+            onClick={onClose}
+            disabled={isSubmitting}
+            className={`flex-1 py-2.5 rounded-xl font-medium transition-colors ${
+              isDark 
+                ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            } disabled:opacity-50`}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className="flex-1 py-2.5 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                <Phone className="w-4 h-4" />
+                Request Callback
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
   // ============================================
   // HANDLE VOICE MESSAGE - LOCAL TRANSCRIPTION + N8N TEXT
   // ============================================
@@ -2583,10 +2747,11 @@ export default function ChatPage() {
     }
   };
 
-  const handleConnectToDoctor = async () => {
+  const handleConnectToDoctor = async (reason?: string) => {
     if (escalating || escalated || !patientId) return;
     
     setEscalating(true);
+    setShowEscalationModal(false);
     
     try {
       let chatSessionId = null;
@@ -2617,7 +2782,7 @@ export default function ChatPage() {
               prescription_id: prescriptionId || null,
               status: 'escalated',
               channel: 'app',
-              chat_summary: `Patient requested doctor connection. Patient: ${patientData?.full_name || 'Unknown'}`
+              chat_summary: `Patient requested doctor connection. Patient: ${patientData?.full_name || 'Unknown'}. Reason: ${reason || 'Not specified'}`
             })
             .select('id')
             .single();
@@ -2629,6 +2794,17 @@ export default function ChatPage() {
       }
       
       if (orgId && chatSessionId && patientId) {
+        // Determine severity based on reason keywords
+        let severity = 'medium';
+        const reasonLower = (reason || '').toLowerCase();
+        if (reasonLower.includes('emergency') || reasonLower.includes('severe') ||
+            reasonLower.includes('chest pain') || reasonLower.includes('breathing')) {
+          severity = 'critical';
+        } else if (reasonLower.includes('side effect') || reasonLower.includes('not improving') ||
+                   reasonLower.includes('new symptom')) {
+          severity = 'high';
+        }
+
         await supabase
           .from('escalations')
           .insert({
@@ -2636,23 +2812,26 @@ export default function ChatPage() {
             patient_id: patientId,
             chat_session_id: chatSessionId,
             escalation_type: 'doctor_request',
-            severity: 'medium',
+            severity: severity,
             status: 'pending',
-            escalation_summary: `Patient ${patientData?.full_name || 'Unknown'} requested to connect with a doctor regarding their prescription.`,
-            ai_recommendation: 'Patient has requested direct doctor consultation. Please review the chat history and prescription details.',
+            reason: reason || 'Patient requested doctor callback',
+            escalation_summary: `Patient ${patientData?.full_name || 'Unknown'} requested to connect with a doctor. Reason: ${reason || 'Not specified'}`,
+            ai_recommendation: `Patient has requested direct doctor consultation. Reason provided: \"${reason || 'Not specified'}\". Please review the chat history and prescription details.`,
+            response_deadline: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
           });
       }
       
       const confirmMessage: Message = {
         id: `system-${Date.now()}`,
         role: 'assistant',
-        content: `✅ **Your request has been sent to the clinic!**\n\nA doctor from ${orgName || 'the clinic'} will review your case and contact you soon.\n\n**What happens next:**\n- The clinic staff will see your request\n- They will review your prescription and chat history\n- You'll receive a callback or message shortly\n\nIn the meantime, feel free to continue asking me questions about your prescription.`,
+        content: `✅ **Your request has been sent to the clinic!**\n\n${reason ? `**Your concern:** \"${reason}\"\n\n` : ''}A doctor from ${orgName || 'the clinic'} will review your case and contact you within **2 hours**.\n\n**What happens next:**\n- The clinic staff will see your request\n- They will review your prescription and chat history\n- You'll receive a callback or message shortly\n\nIn the meantime, feel free to continue asking me questions about your prescription.`,
         timestamp: new Date(),
         type: 'general'
       };
       
       setMessages(prev => [...prev, confirmMessage]);
       setEscalated(true);
+      setEscalationReason('');
       
     } catch (error) {
       console.error('Error connecting to doctor:', error);
@@ -2670,6 +2849,8 @@ export default function ChatPage() {
       setEscalating(false);
     }
   };
+        
+
 
   const goToDashboard = () => {
     router.push(`/${org}/dashboard`);
@@ -2787,7 +2968,16 @@ export default function ChatPage() {
           isDark={isDark}
         />
       )}
-      
+      {showEscalationModal && (
+        <ConnectToDoctorModal
+          onClose={() => setShowEscalationModal(false)}
+          onSubmit={(reason) => handleConnectToDoctor(reason)}
+          isSubmitting={escalating}
+          isDark={isDark}
+          orgName={orgName}
+          patientName={patientData?.full_name}
+        />
+      )}
       {/* HEADER */}
       <header className={`${colors.bgSecondary} border-b ${colors.border} flex-shrink-0`}>
         <div className="px-4 py-3 flex items-center justify-between relative">
@@ -2910,8 +3100,8 @@ export default function ChatPage() {
               </div>
               
               <div className="flex items-center gap-3">
-                <button
-                  onClick={handleConnectToDoctor}
+              <button
+                  onClick={() => !escalated && setShowEscalationModal(true)}
                   disabled={escalating || escalated}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
                     escalated
@@ -3182,7 +3372,7 @@ export default function ChatPage() {
             </div>
             
             <button
-              onClick={handleConnectToDoctor}
+              onClick={() => !escalated && setShowEscalationModal(true)}
               disabled={escalating || escalated}
               className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                 escalated
