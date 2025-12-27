@@ -951,13 +951,13 @@ export function EscalationsList() {
   useEffect(() => {
     const fetchDoctors = async () => {
       if (!organization?.id) return;
-      
       try {
         const { data, error } = await supabase
-          .from('doctor_profiles')
+          .from('org_staff_extended')
           .select('id, full_name, specialization')
           .eq('organization_id', organization.id)
           .eq('is_active', true)
+          .eq('can_handle_escalations', true)
           .order('full_name');
         
         if (!error && data) {
