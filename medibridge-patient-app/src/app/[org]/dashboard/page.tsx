@@ -206,15 +206,17 @@ function getThemeFromColors(customColors: any): ThemePreset {
 // SERVICE CARDS COMPONENT
 // ============================================================
 
-const ServiceCards = ({ 
-  onPrescriptionClick, 
-  onLabReportClick, 
+const ServiceCards = ({
+  onPrescriptionClick,
+  onLabReportClick,
   onChatClick,
+  onVoiceCallClick,
   theme
 }: {
   onPrescriptionClick: () => void;
   onLabReportClick: () => void;
   onChatClick: () => void;
+  onVoiceCallClick: () => void;
   theme: ThemePreset;
 }) => {
   return (
@@ -299,23 +301,41 @@ const ServiceCards = ({
           </span>
         </button>
 
-        {/* Voice Chat - Gray (Coming Soon - Fixed) */}
-        <div className="group relative bg-gradient-to-br from-slate-500/5 to-slate-600/5 
-                        border border-slate-500/20 rounded-xl p-5 text-left opacity-60">
+        {/* Call Dr. Bridge - Real-time Voice Call */}
+        <button
+          onClick={onVoiceCallClick}
+          className="group relative overflow-hidden bg-gradient-to-br from-purple-500/10 via-violet-500/10 to-indigo-500/10 
+                     hover:from-purple-500/20 hover:via-violet-500/20 hover:to-indigo-500/20
+                     border border-purple-500/30 hover:border-purple-400/50 
+                     rounded-xl p-5 text-left transition-all duration-300 
+                     hover:shadow-lg hover:shadow-purple-500/20 hover:-translate-y-1"
+        >
+          {/* Animated background shimmer */}
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+          
+          {/* NEW Badge */}
           <div className="absolute top-3 right-3">
-            <span className="bg-slate-500/20 text-slate-400 text-[10px] px-2 py-0.5 rounded-full font-medium">
-              Coming Soon
+            <span className="bg-yellow-400 text-yellow-900 text-[10px] px-2 py-0.5 rounded-full font-bold">
+              NEW
             </span>
           </div>
-          <div className="w-12 h-12 bg-gradient-to-br from-slate-400/50 to-slate-500/50 rounded-xl 
-                          flex items-center justify-center mb-4">
-            <Mic className="w-6 h-6 text-white/70" />
+          
+          <div className="relative z-10">
+            <div className="w-12 h-12 bg-gradient-to-br from-purple-500 via-violet-500 to-indigo-600 rounded-xl 
+                            flex items-center justify-center mb-4 shadow-lg shadow-purple-500/30
+                            group-hover:scale-110 transition-transform duration-300">
+              <Phone className="w-6 h-6 text-white" />
+            </div>
+            <h3 className="text-purple-400 font-semibold text-base mb-2">Call Dr. Bridge</h3>
+            <p className="text-slate-400 text-xs mb-4 leading-relaxed">
+              Real-time voice conversation with AI health assistant
+            </p>
+            <span className="inline-flex items-center text-purple-400 text-sm font-medium group-hover:gap-2 transition-all">
+              Start Call
+              <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+            </span>
           </div>
-          <h3 className="text-slate-400/70 font-semibold text-base mb-2">Voice Chat</h3>
-          <p className="text-slate-500 text-xs mb-4 leading-relaxed">
-            Speak your questions and get audio responses
-          </p>
-        </div>
+        </button>
       </div>
     </div>
   );
@@ -587,7 +607,7 @@ export default function DashboardPage() {
   // State
   const [showPatientSelector, setShowPatientSelector] = useState(false);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
-  const [pendingAction, setPendingAction] = useState<'prescription' | 'lab' | 'chat' | null>(null);
+  const [pendingAction, setPendingAction] = useState<'prescription' | 'lab' | 'chat' | 'voice-call' | null>(null);
   
   const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
   const [showLabReportModal, setShowLabReportModal] = useState(false);
@@ -784,7 +804,7 @@ export default function DashboardPage() {
   };
 
   // Handle action that requires patient selection
-  const handleActionWithPatient = (action: 'prescription' | 'lab' | 'chat') => {
+  const handleActionWithPatient = (action: 'prescription' | 'lab' | 'chat' | 'voice-call') => {
     // For OTP users, patient is already selected (themselves)
     if (authType === 'otp' && selectedPatient) {
       if (action === 'prescription') {
@@ -793,6 +813,8 @@ export default function DashboardPage() {
         setShowLabReportModal(true);
       } else if (action === 'chat') {
         router.push(`/${org}/chat?patient_id=${selectedPatient.id}`);
+      } else if (action === 'voice-call') {
+        router.push(`/${org}/voice-call?patient_id=${selectedPatient.id}`);
       }
     } else {
       // For Supabase users, show patient selector
@@ -805,7 +827,6 @@ export default function DashboardPage() {
   const handlePatientSelected = (patient: Patient) => {
     setSelectedPatient(patient);
     setShowPatientSelector(false);
-    
     // Now proceed with the pending action
     if (pendingAction === 'prescription') {
       setShowPrescriptionModal(true);
@@ -813,8 +834,9 @@ export default function DashboardPage() {
       setShowLabReportModal(true);
     } else if (pendingAction === 'chat') {
       router.push(`/${org}/chat?patient_id=${patient.id}`);
+    } else if (pendingAction === 'voice-call') {
+      router.push(`/${org}/voice-call?patient_id=${patient.id}`);
     }
-    
     setPendingAction(null);
   };
 
@@ -1049,6 +1071,7 @@ export default function DashboardPage() {
           onPrescriptionClick={() => handleActionWithPatient('prescription')}
           onLabReportClick={() => handleActionWithPatient('lab')}
           onChatClick={() => handleActionWithPatient('chat')}
+          onVoiceCallClick={() => handleActionWithPatient('voice-call')}
           theme={theme}
         />
 
