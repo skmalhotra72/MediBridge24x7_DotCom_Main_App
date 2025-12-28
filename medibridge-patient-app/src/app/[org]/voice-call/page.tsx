@@ -287,7 +287,7 @@ export default function VoiceCallPage() {
       addLog('Step 6: Setting up audio output...');
       const audioEl = document.createElement('audio');
       audioEl.autoplay = true;
-      audioEl.playsInline = true;
+      audioEl.setAttribute('playsinline', 'true');
       audioEl.volume = 1.0;
       document.body.appendChild(audioEl);
       audioElementRef.current = audioEl;
