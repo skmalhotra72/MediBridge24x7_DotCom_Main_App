@@ -77,7 +77,7 @@ export default function VoiceCallPage() {
   const [isSummarizing, setIsSummarizing] = useState(false);
   
   // Audio controls
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   
   // Call stats
@@ -100,7 +100,7 @@ export default function VoiceCallPage() {
   const ringAudioRef = useRef<{ oscillator: OscillatorNode; context: AudioContext } | null>(null);
   const greetingSentRef = useRef(false);
   const callStartTimeRef = useRef<Date | null>(null);
-
+  const greetingCompleteRef = useRef(false);
   // Debug logger
   const addLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -199,7 +199,8 @@ export default function VoiceCallPage() {
       setCallStats({ duration: 0, patientMessages: 0, aiMessages: 0 }); // Reset stats
       callStartTimeRef.current = null; // Reset start time
       greetingSentRef.current = false;
-      addLog('🚀 Starting voice call...');
+greetingCompleteRef.current = false;
+addLog('🚀 Starting voice call...');
 
       const organizationId = patientInfo.organization_id;
 
@@ -216,7 +217,9 @@ export default function VoiceCallPage() {
         });
         localStreamRef.current = stream;
         const audioTrack = stream.getAudioTracks()[0];
-        addLog(`✅ Mic: ${audioTrack.label}`);
+        // Start with mic muted until greeting completes
+        audioTrack.enabled = false;
+        addLog(`✅ Mic: ${audioTrack.label} (muted until greeting completes)`);
       } catch (micError: any) {
         addLog(`❌ Mic error: ${micError.message}`);
         throw new Error(`Microphone access denied. Please allow microphone and try again.`);
@@ -480,11 +483,27 @@ export default function VoiceCallPage() {
           setSpeakerState('ai_speaking');
           break;
           
-        case 'response.audio.done':
-          setSpeakerState('idle');
-          setCallStats(prev => ({ ...prev, aiMessages: prev.aiMessages + 1 }));
-          addLog('🔊 AI audio complete');
-          break;
+          case 'response.audio.done':
+            setSpeakerState('idle');
+            setCallStats(prev => ({ ...prev, aiMessages: prev.aiMessages + 1 }));
+            addLog('🔊 AI audio complete');
+            
+            // Auto-unmute after first greeting completes
+            if (!greetingCompleteRef.current) {
+              greetingCompleteRef.current = true;
+              addLog('✅ Greeting complete - enabling microphone');
+              
+              // Unmute the mic
+              if (localStreamRef.current) {
+                const track = localStreamRef.current.getAudioTracks()[0];
+                if (track) {
+                  track.enabled = true;
+                  setIsMuted(false);
+                  addLog('🎤 Microphone enabled - you can speak now');
+                }
+              }
+            }
+            break;
 
         case 'response.audio_transcript.delta':
           setCurrentAIText(prev => prev + (event.delta || ''));
@@ -744,10 +763,11 @@ if (updateError) {
       case 'loading_context': return 'Loading your medical records...';
       case 'ringing': return 'Connecting to Dr. Bridge...';
       case 'connected':
-        if (speakerState === 'patient_speaking') return 'Listening...';
-        if (speakerState === 'ai_speaking') return 'Dr. Bridge speaking...';
-        if (speakerState === 'processing') return 'Processing...';
-        return `Connected • ${formatDuration(callStats.duration)}`;
+  if (speakerState === 'ai_speaking') return 'Dr. Bridge speaking...';
+  if (!greetingCompleteRef.current) return 'Dr. Bridge speaking... (please wait)';
+  if (speakerState === 'patient_speaking') return 'Listening...';
+  if (speakerState === 'processing') return 'Processing...';
+  return `Connected • ${formatDuration(callStats.duration)}`;
       case 'ending': return isSummarizing ? 'Saving & summarizing...' : 'Ending...';
       case 'ended': return 'Call ended';
       case 'error': return 'Call failed';
