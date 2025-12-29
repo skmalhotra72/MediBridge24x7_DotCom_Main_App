@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { ArrowRight, FileText, FlaskConical, MessageCircle, Mic, Upload, Camera, X, Check, Loader2, User, Sparkles, LogOut, Phone } from 'lucide-react';
+import { ArrowRight, FileText, FlaskConical, MessageCircle, Mic, Upload, Camera, X, Check, Loader2, User, Sparkles, LogOut, Phone, Stethoscope, Building2, Clock, ChevronRight } from 'lucide-react';
 import PatientSelector, { PatientInfoBadge } from '@/components/PatientSelector';
 import PatientHealthSummary from '@/components/PatientHealthSummary';
 
@@ -32,10 +32,18 @@ interface Patient {
 interface Prescription {
   id: string;
   chief_complaint: string | null;
+  user_question: string | null;
   status: string;
   created_at: string;
   document_type: string | null;
   patient_id: string | null;
+  // Patient Info
+  patient_name: string | null;
+  patient_age: string | null;
+  patient_gender: string | null;
+  // Doctor/Clinic Info
+  doctor_name: string | null;
+  clinic_name: string | null;
 }
 
 interface Stats {
@@ -716,10 +724,23 @@ export default function DashboardPage() {
             setSelectedPatient(firstPatient as Patient);
           }
 
-          // Get prescriptions for Supabase user
+          // Get prescriptions for Supabase user with all needed fields
           const { data: prescriptions } = await supabase
             .from('prescriptions')
-            .select('*')
+            .select(`
+              id,
+              chief_complaint,
+              user_question,
+              status,
+              created_at,
+              document_type,
+              patient_id,
+              patient_name,
+              patient_age,
+              patient_gender,
+              doctor_name,
+              clinic_name
+            `)
             .eq('user_id', user.id)
             .order('created_at', { ascending: false })
             .limit(10);
@@ -756,10 +777,23 @@ export default function DashboardPage() {
             setSelectedPatient(patientData as Patient);
           }
 
-          // Get prescriptions for OTP patient
+          // Get prescriptions for OTP patient with all needed fields
           const { data: prescriptions } = await supabase
             .from('prescriptions')
-            .select('*')
+            .select(`
+              id,
+              chief_complaint,
+              user_question,
+              status,
+              created_at,
+              document_type,
+              patient_id,
+              patient_name,
+              patient_age,
+              patient_gender,
+              doctor_name,
+              clinic_name
+            `)
             .eq('patient_id', storedOtpSession.patient_id)
             .order('created_at', { ascending: false })
             .limit(10);
@@ -945,6 +979,23 @@ export default function DashboardPage() {
     });
   };
 
+  // Helper function to format patient info
+  const formatPatientInfo = (prescription: Prescription): string => {
+    const parts: string[] = [];
+    if (prescription.patient_name) parts.push(prescription.patient_name);
+    if (prescription.patient_age) parts.push(`${prescription.patient_age}`);
+    if (prescription.patient_gender) parts.push(prescription.patient_gender);
+    return parts.join(' • ') || 'Patient';
+  };
+
+  // Helper function to format doctor/clinic info
+  const formatDoctorInfo = (prescription: Prescription): string | null => {
+    const parts: string[] = [];
+    if (prescription.doctor_name) parts.push(`Dr. ${prescription.doctor_name}`);
+    if (prescription.clinic_name) parts.push(prescription.clinic_name);
+    return parts.length > 0 ? parts.join(' | ') : null;
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
@@ -1084,55 +1135,104 @@ export default function DashboardPage() {
           />
         )}
 
-        {/* Recent Activity */}
+        {/* ============================================================ */}
+        {/* ENHANCED RECENT ACTIVITY SECTION */}
+        {/* ============================================================ */}
         <div className="bg-slate-800/50 rounded-2xl p-6 backdrop-blur-sm">
           <h2 className="text-white text-xl font-bold mb-4">Recent Activity</h2>
           
           {recentPrescriptions.length > 0 ? (
             <div className="space-y-3">
               {recentPrescriptions.map((prescription) => (
-                <button
+                <div
                   key={prescription.id}
                   onClick={() => router.push(`/${org}/chat?prescription_id=${prescription.id}&session=${prescription.id}${prescription.patient_id ? `&patient_id=${prescription.patient_id}` : ''}`)}
-                  className="w-full flex items-center justify-between p-4 bg-slate-700/50 hover:bg-slate-700 
-                             rounded-xl transition-colors text-left"
+                  className="group bg-slate-700/30 hover:bg-slate-700/50 border border-slate-700/50 hover:border-cyan-500/30 
+                             rounded-xl p-4 cursor-pointer transition-all duration-200"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                  <div className="flex items-start gap-4">
+                    {/* Document Type Icon */}
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
                       prescription.document_type === 'lab_report' 
-                        ? 'bg-orange-500/20' 
-                        : theme.primary.bgLight
+                        ? 'bg-purple-500/20' 
+                        : prescription.document_type === 'prescription'
+                          ? 'bg-cyan-500/20'
+                          : 'bg-blue-500/20'
                     }`}>
                       {prescription.document_type === 'lab_report' ? (
-                        <FlaskConical className="w-5 h-5 text-orange-400" />
+                        <FlaskConical className="w-5 h-5 text-purple-400" />
+                      ) : prescription.document_type === 'prescription' ? (
+                        <FileText className="w-5 h-5 text-cyan-400" />
                       ) : (
-                        <FileText className={`w-5 h-5 ${theme.primary.text}`} />
+                        <MessageCircle className="w-5 h-5 text-blue-400" />
                       )}
                     </div>
-                    <div>
-                      <p className="text-white font-medium">
-                        {prescription.chief_complaint || 'Document Analysis'}
+
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      {/* Question/Title */}
+                      <p className="text-white font-medium text-sm line-clamp-2 group-hover:text-cyan-300 transition-colors">
+                        {prescription.user_question || prescription.chief_complaint || 'Document Analysis'}
                       </p>
-                      <p className="text-slate-400 text-xs">
-                        {formatDate(prescription.created_at)}
-                      </p>
+
+                      {/* Patient Info Row */}
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
+                        {/* Patient Name, Age, Gender */}
+                        <div className="flex items-center gap-1.5 bg-slate-600/50 px-2 py-0.5 rounded-md">
+                          <User className="w-3 h-3 text-cyan-400" />
+                          <span className="text-cyan-300 text-xs font-medium">
+                            {formatPatientInfo(prescription)}
+                          </span>
+                        </div>
+
+                        {/* Doctor & Clinic */}
+                        {formatDoctorInfo(prescription) && (
+                          <div className="flex items-center gap-1.5 bg-slate-600/50 px-2 py-0.5 rounded-md">
+                            <Stethoscope className="w-3 h-3 text-emerald-400" />
+                            <span className="text-emerald-300 text-xs">
+                              {formatDoctorInfo(prescription)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Date */}
+                      <div className="flex items-center gap-1.5 mt-2">
+                        <Clock className="w-3 h-3 text-slate-500" />
+                        <span className="text-slate-500 text-xs">
+                          {formatDate(prescription.created_at)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Status Badge & Arrow */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                        prescription.status === 'analyzed' || prescription.status === 'completed'
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : prescription.status === 'processing' || prescription.status === 'pending'
+                            ? 'bg-amber-500/20 text-amber-400'
+                            : 'bg-slate-500/20 text-slate-400'
+                      }`}>
+                        {prescription.status === 'analyzed' || prescription.status === 'completed' 
+                          ? '✓ Analyzed' 
+                          : prescription.status === 'processing' || prescription.status === 'pending'
+                            ? '⏳ Processing'
+                            : prescription.status}
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-cyan-400 transition-colors" />
                     </div>
                   </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                    prescription.status === 'analyzed' || prescription.status === 'completed'
-                      ? 'bg-green-500/20 text-green-400'
-                      : 'bg-yellow-500/20 text-yellow-400'
-                  }`}>
-                    {prescription.status === 'analyzed' || prescription.status === 'completed' 
-                      ? '✓ Analyzed' 
-                      : 'Processing'}
-                  </span>
-                </button>
+                </div>
               ))}
             </div>
           ) : (
-            <div className="text-center py-8">
-              <p className="text-slate-400">No recent activity. Upload a prescription to get started!</p>
+            <div className="text-center py-12 bg-slate-800/30 rounded-xl border border-slate-700/50">
+              <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
+                <FileText className="w-8 h-8 text-slate-600" />
+              </div>
+              <p className="text-slate-400 font-medium">No recent activity</p>
+              <p className="text-slate-500 text-sm mt-1">Upload a prescription to get started!</p>
             </div>
           )}
         </div>

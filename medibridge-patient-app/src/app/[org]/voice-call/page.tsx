@@ -72,8 +72,9 @@ export default function VoiceCallPage() {
   const [organizationName, setOrganizationName] = useState<string>('');
   const [voiceCallId, setVoiceCallId] = useState<string | null>(null);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const [showDebug, setShowDebug] = useState(false); // Hidden by default
+  const [showDebug, setShowDebug] = useState(false);
   const [contextLoaded, setContextLoaded] = useState<ContextLoaded | null>(null);
+  const [isSummarizing, setIsSummarizing] = useState(false);
   
   // Audio controls
   const [isMuted, setIsMuted] = useState(false);
@@ -98,6 +99,7 @@ export default function VoiceCallPage() {
   const callTimerRef = useRef<NodeJS.Timeout | null>(null);
   const ringAudioRef = useRef<{ oscillator: OscillatorNode; context: AudioContext } | null>(null);
   const greetingSentRef = useRef(false);
+  const callStartTimeRef = useRef<Date | null>(null);
 
   // Debug logger
   const addLog = (message: string) => {
@@ -117,6 +119,11 @@ export default function VoiceCallPage() {
   // Call duration timer
   useEffect(() => {
     if (callState === 'connected') {
+      // Record call start time
+      if (!callStartTimeRef.current) {
+        callStartTimeRef.current = new Date();
+      }
+      
       callTimerRef.current = setInterval(() => {
         setCallStats(prev => ({ ...prev, duration: prev.duration + 1 }));
       }, 1000);
@@ -188,6 +195,9 @@ export default function VoiceCallPage() {
       setError(null);
       setDebugLogs([]);
       setContextLoaded(null);
+      setTranscript([]); // Reset transcript
+      setCallStats({ duration: 0, patientMessages: 0, aiMessages: 0 }); // Reset stats
+      callStartTimeRef.current = null; // Reset start time
       greetingSentRef.current = false;
       addLog('🚀 Starting voice call...');
 
@@ -578,24 +588,101 @@ export default function VoiceCallPage() {
     setCallState('ending');
     stopRingTone();
 
-    if (voiceCallId) {
+    const callEndTime = new Date();
+    const finalDuration = callStats.duration;
+    const finalTranscript = [...transcript]; // Capture final transcript
+
+    // Cleanup WebRTC first
+    cleanup();
+
+    if (voiceCallId && patientInfo) {
       try {
-        const fullTranscript = transcript.map(t => `[${t.speaker}]: ${t.content}`).join('\n');
-        await supabase
-          .from('voice_calls')
-          .update({
-            call_status: 'ended',
-            call_end_time: new Date().toISOString(),
-            call_duration_seconds: callStats.duration,
-            full_transcript: fullTranscript || null,
-            transcript_word_count: fullTranscript ? fullTranscript.split(' ').length : 0
-          })
-          .eq('id', voiceCallId);
-        addLog('✅ Call saved');
-      } catch (err) {}
+        // Prepare transcript data
+        const transcriptJsonb = finalTranscript.map(t => ({
+          role: t.speaker === 'patient' ? 'user' : 'assistant',
+          content: t.content,
+          timestamp: t.timestamp.toISOString()
+        }));
+        
+        const fullTranscriptText = finalTranscript
+          .map(t => `[${t.speaker === 'patient' ? 'Patient' : 'Dr. Bridge'}]: ${t.content}`)
+          .join('\n');
+
+        // Step 1: Save transcript to database immediately
+addLog(`💾 Saving transcript (${finalTranscript.length} messages, ${finalDuration}s)...`);
+const { error: updateError } = await supabase
+  .from('voice_calls')
+  .update({
+    call_status: 'completed',
+    call_end_time: callEndTime.toISOString(),
+    call_duration_seconds: finalDuration,
+    full_transcript: fullTranscriptText || null,
+    transcript: transcriptJsonb.length > 0 ? transcriptJsonb : null,
+    transcript_word_count: fullTranscriptText ? fullTranscriptText.split(' ').length : 0
+  })
+  .eq('id', voiceCallId);
+
+if (updateError) {
+  addLog(`❌ Supabase error: ${updateError.message}`);
+  console.error('Supabase update error:', updateError);
+} else {
+  addLog('✅ Transcript saved');
+}
+
+        // Step 2: Send to n8n for AI summarization (if there's meaningful content)
+        if (finalTranscript.length >= 2) {
+          setIsSummarizing(true);
+          addLog('🤖 Sending to AI for summarization...');
+          
+          try {
+            const n8nWebhookUrl = process.env.NEXT_PUBLIC_N8N_VOICE_SUMMARY_WEBHOOK || 
+              'https://n8n.nhcare.in/webhook/voice-call-summary';
+            
+            const summaryResponse = await fetch(n8nWebhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                voice_call_id: voiceCallId,
+                patient_id: patientInfo.id,
+                patient_name: patientInfo.full_name,
+                organization_id: patientInfo.organization_id,
+                organization_slug: org,
+                call_duration_seconds: finalDuration,
+                call_started_at: callStartTimeRef.current?.toISOString(),
+                call_ended_at: callEndTime.toISOString(),
+                transcript: transcriptJsonb,
+                transcript_text: fullTranscriptText,
+                message_count: {
+                  patient: callStats.patientMessages,
+                  ai: callStats.aiMessages,
+                  total: finalTranscript.length
+                }
+              })
+            });
+
+            if (summaryResponse.ok) {
+              addLog('✅ Sent to AI for summarization');
+            } else {
+              addLog('⚠️ Summary webhook returned error, but transcript is saved');
+            }
+          } catch (webhookErr) {
+            // Don't fail if webhook fails - transcript is already saved
+            addLog('⚠️ Could not reach summary service, transcript saved locally');
+            console.error('Webhook error:', webhookErr);
+          }
+          
+          setIsSummarizing(false);
+        } else {
+          addLog('ℹ️ Call too short for summarization');
+        }
+
+        addLog('✅ Call data saved successfully');
+      } catch (err) {
+        console.error('Error saving call:', err);
+        addLog('❌ Error saving call data');
+      }
     }
 
-    cleanup();
     setCallState('ended');
   };
 
@@ -661,7 +748,7 @@ export default function VoiceCallPage() {
         if (speakerState === 'ai_speaking') return 'Dr. Bridge speaking...';
         if (speakerState === 'processing') return 'Processing...';
         return `Connected • ${formatDuration(callStats.duration)}`;
-      case 'ending': return 'Ending...';
+      case 'ending': return isSummarizing ? 'Saving & summarizing...' : 'Ending...';
       case 'ended': return 'Call ended';
       case 'error': return 'Call failed';
       default: return '';
@@ -698,7 +785,7 @@ export default function VoiceCallPage() {
               : 'bg-gradient-to-br from-cyan-500 to-blue-600 shadow-cyan-500/30'}
             ${speakerState === 'patient_speaking' ? 'ring-4 ring-emerald-400/50' : ''}`}
           >
-            {callState === 'initializing' || callState === 'loading_context' ? 
+            {callState === 'initializing' || callState === 'loading_context' || (callState === 'ending' && isSummarizing) ? 
               <Loader2 className="w-12 h-12 text-white animate-spin" />
               : <Activity className="w-12 h-12 text-white" />}
           </div>
@@ -717,7 +804,7 @@ export default function VoiceCallPage() {
         <div className="flex items-center gap-2">
           {callState === 'error' && <AlertCircle className="w-5 h-5 text-red-400" />}
           {callState === 'ended' && <CheckCircle2 className="w-5 h-5 text-emerald-400" />}
-          {callState === 'loading_context' && <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />}
+          {(callState === 'loading_context' || (callState === 'ending' && isSummarizing)) && <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />}
           <span className={`text-lg font-medium ${callState === 'error' ? 'text-red-400' : 'text-white'}`}>
             {getStatusMessage()}
           </span>
@@ -878,6 +965,13 @@ export default function VoiceCallPage() {
                 <p className="text-slate-400 text-xs">AI</p>
               </div>
             </div>
+            
+            {/* Transcript saved indicator */}
+            <div className="flex items-center justify-center gap-2 text-emerald-400 text-sm">
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Transcript saved to your records</span>
+            </div>
+            
             <button
               onClick={() => router.push(`/${org}/dashboard`)}
               className="w-full py-3 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-xl font-medium transition-colors border border-cyan-500/30"
@@ -921,7 +1015,8 @@ export default function VoiceCallPage() {
                   ${log.includes('👤') ? 'text-emerald-300' : ''}
                   ${log.includes('CONTEXT') ? 'text-cyan-300 font-bold' : ''}
                   ${log.includes('🏥') || log.includes('👨‍⚕️') ? 'text-cyan-400' : ''}
-                  ${!log.match(/[❌✅⚠️🎵🔊🔗🧊🎉🤖👤🏥]/) && !log.includes('CONTEXT') ? 'text-slate-300' : ''}
+                  ${log.includes('💾') ? 'text-purple-400' : ''}
+                  ${!log.match(/[❌✅⚠️🎵🔊🔗🧊🎉🤖👤🏥💾]/) && !log.includes('CONTEXT') ? 'text-slate-300' : ''}
                 `}>
                   {log}
                 </div>
