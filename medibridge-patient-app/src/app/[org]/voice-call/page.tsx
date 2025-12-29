@@ -41,6 +41,9 @@ interface ContextLoaded {
   lab_results: number;
   chat_sessions: number;
   escalations: number;
+  doctors?: number;
+  lab_tests?: number;
+  clinic_context?: boolean;
 }
 
 interface TranscriptEntry {
@@ -69,7 +72,7 @@ export default function VoiceCallPage() {
   const [organizationName, setOrganizationName] = useState<string>('');
   const [voiceCallId, setVoiceCallId] = useState<string | null>(null);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const [showDebug, setShowDebug] = useState(true);
+  const [showDebug, setShowDebug] = useState(false); // Hidden by default
   const [contextLoaded, setContextLoaded] = useState<ContextLoaded | null>(null);
   
   // Audio controls
@@ -216,6 +219,7 @@ export default function VoiceCallPage() {
       addLog('   💊 Fetching medicines...');
       addLog('   🔬 Fetching lab reports...');
       addLog('   💬 Fetching chat history...');
+      addLog('   🏥 Fetching clinic & doctor info...');
 
       // Step 3: Get ephemeral token (this now includes FULL context loading)
       addLog('Step 3: Creating AI session with full patient context...');
@@ -246,10 +250,19 @@ export default function VoiceCallPage() {
         addLog(`   👤 Patient: ${tokenData.context_loaded.patient_name}`);
         addLog(`   📋 Prescriptions: ${tokenData.context_loaded.prescriptions}`);
         addLog(`   💊 Medicines: ${tokenData.context_loaded.medicines}`);
-        addLog(`   🔬 Lab Reports: ${tokenData.context_loaded.lab_reports}`);
-        addLog(`   🧪 Lab Results: ${tokenData.context_loaded.lab_results}`);
         addLog(`   💬 Chat Sessions: ${tokenData.context_loaded.chat_sessions}`);
-        addLog(`   ⚠️ Escalations: ${tokenData.context_loaded.escalations}`);
+        if (tokenData.context_loaded.doctors) {
+          addLog(`   👨‍⚕️ Doctors: ${tokenData.context_loaded.doctors}`);
+        }
+        if (tokenData.context_loaded.lab_tests) {
+          addLog(`   🧪 Lab Tests: ${tokenData.context_loaded.lab_tests}`);
+        }
+        if (tokenData.context_loaded.clinic_context) {
+          addLog(`   🏥 Clinic Context: Loaded`);
+        }
+        if (tokenData.context_loaded.escalations) {
+          addLog(`   ⚠️ Escalations: ${tokenData.context_loaded.escalations}`);
+        }
       }
 
       // Step 4: Set ringing state
@@ -656,27 +669,21 @@ export default function VoiceCallPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900/20 to-slate-900 flex flex-col">
+    <div className="min-h-screen bg-slate-900 flex flex-col">
       {/* Header */}
-      <header className="p-4 flex items-center justify-between">
-        <button onClick={goBack} className="flex items-center gap-2 text-slate-400 hover:text-white">
+      <header className="p-4 flex items-center justify-between border-b border-slate-700/50">
+        <button onClick={goBack} className="flex items-center gap-2 text-slate-300 hover:text-white transition-colors">
           <ArrowLeft className="w-5 h-5" />
-          <span>Back</span>
+          <span className="font-medium">Back</span>
         </button>
         
         <div className="flex items-center gap-4">
           {callState === 'connected' && (
-            <span className="flex items-center gap-2 text-green-400 text-sm">
-              <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-              Recording
+            <span className="flex items-center gap-2 text-emerald-400 text-sm font-medium">
+              <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+              Live
             </span>
           )}
-          <button
-            onClick={() => setShowDebug(!showDebug)}
-            className="text-xs text-slate-500 hover:text-slate-300"
-          >
-            {showDebug ? 'Hide' : 'Show'} Debug
-          </button>
         </div>
       </header>
 
@@ -684,78 +691,89 @@ export default function VoiceCallPage() {
       <main className="flex-1 flex flex-col items-center justify-center p-6 space-y-6">
         {/* Avatar */}
         <div className={`relative ${callState === 'ringing' || speakerState === 'ai_speaking' ? 'animate-pulse' : ''}`}>
-          <div className={`w-32 h-32 rounded-full flex items-center justify-center transition-all
-            ${speakerState === 'ai_speaking' ? 'bg-gradient-to-br from-purple-500 to-pink-500' 
-              : speakerState === 'patient_speaking' ? 'bg-gradient-to-br from-green-500 to-emerald-500'
-              : callState === 'loading_context' ? 'bg-gradient-to-br from-blue-500 to-cyan-500'
-              : 'bg-gradient-to-br from-purple-500 to-violet-600'}
-            ${speakerState === 'patient_speaking' ? 'ring-4 ring-green-400/50' : ''}`}
+          <div className={`w-32 h-32 rounded-full flex items-center justify-center transition-all shadow-lg
+            ${speakerState === 'ai_speaking' ? 'bg-gradient-to-br from-cyan-400 to-blue-500 shadow-cyan-500/40' 
+              : speakerState === 'patient_speaking' ? 'bg-gradient-to-br from-emerald-400 to-green-500 shadow-emerald-500/40'
+              : callState === 'loading_context' ? 'bg-gradient-to-br from-cyan-500 to-blue-600 shadow-cyan-500/30'
+              : 'bg-gradient-to-br from-cyan-500 to-blue-600 shadow-cyan-500/30'}
+            ${speakerState === 'patient_speaking' ? 'ring-4 ring-emerald-400/50' : ''}`}
           >
             {callState === 'initializing' || callState === 'loading_context' ? 
               <Loader2 className="w-12 h-12 text-white animate-spin" />
               : <Activity className="w-12 h-12 text-white" />}
           </div>
           {(callState === 'ringing' || speakerState === 'ai_speaking') && (
-            <div className="absolute inset-0 rounded-full bg-purple-500/30 animate-ping" />
+            <div className="absolute inset-0 rounded-full bg-cyan-400/30 animate-ping" />
           )}
         </div>
 
         {/* Title */}
         <div className="text-center">
           <h1 className="text-2xl font-bold text-white mb-1">Dr. Bridge AI</h1>
-          <p className="text-slate-400 text-sm">{organizationName || 'MediBridge'}</p>
+          <p className="text-cyan-400 text-sm font-medium">{organizationName || 'MediBridge'}</p>
         </div>
 
         {/* Status */}
         <div className="flex items-center gap-2">
           {callState === 'error' && <AlertCircle className="w-5 h-5 text-red-400" />}
-          {callState === 'ended' && <CheckCircle2 className="w-5 h-5 text-green-400" />}
-          {callState === 'loading_context' && <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />}
-          <span className={`text-lg ${callState === 'error' ? 'text-red-400' : 'text-white'}`}>
+          {callState === 'ended' && <CheckCircle2 className="w-5 h-5 text-emerald-400" />}
+          {callState === 'loading_context' && <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />}
+          <span className={`text-lg font-medium ${callState === 'error' ? 'text-red-400' : 'text-white'}`}>
             {getStatusMessage()}
           </span>
         </div>
 
         {/* Context Loading Indicator */}
         {callState === 'loading_context' && (
-          <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl px-6 py-4 max-w-md">
-            <p className="text-blue-200 text-sm text-center">
-              Loading your prescriptions, lab reports, and medical history...
+          <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl px-6 py-4 max-w-md">
+            <p className="text-cyan-200 text-sm text-center">
+              Loading your prescriptions, lab reports, clinic info, and medical history...
             </p>
           </div>
         )}
 
         {/* Context Loaded Badge - Shows what Dr. Bridge knows */}
         {contextLoaded && (callState === 'connected' || callState === 'ringing') && (
-          <div className="bg-green-500/10 border border-green-500/30 rounded-xl px-4 py-3 max-w-md">
-            <p className="text-green-300 text-xs font-semibold mb-2 text-center">
-              ✅ Dr. Bridge has access to your records:
+          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3 max-w-md">
+            <p className="text-emerald-300 text-xs font-semibold mb-2 text-center flex items-center justify-center gap-1">
+              <CheckCircle2 className="w-4 h-4" />
+              Dr. Bridge has access to your records:
             </p>
             <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="flex flex-col items-center">
-                <FileText className="w-4 h-4 text-green-400 mb-1" />
-                <span className="text-green-200 text-xs">{contextLoaded.prescriptions} Rx</span>
+              <div className="flex flex-col items-center bg-slate-800/50 rounded-lg p-2">
+                <FileText className="w-4 h-4 text-cyan-400 mb-1" />
+                <span className="text-white text-sm font-bold">{contextLoaded.prescriptions}</span>
+                <span className="text-slate-400 text-xs">Rx</span>
               </div>
-              <div className="flex flex-col items-center">
-                <Pill className="w-4 h-4 text-green-400 mb-1" />
-                <span className="text-green-200 text-xs">{contextLoaded.medicines} Meds</span>
+              <div className="flex flex-col items-center bg-slate-800/50 rounded-lg p-2">
+                <Pill className="w-4 h-4 text-cyan-400 mb-1" />
+                <span className="text-white text-sm font-bold">{contextLoaded.medicines}</span>
+                <span className="text-slate-400 text-xs">Meds</span>
               </div>
-              <div className="flex flex-col items-center">
-                <FlaskConical className="w-4 h-4 text-green-400 mb-1" />
-                <span className="text-green-200 text-xs">{contextLoaded.lab_reports} Labs</span>
+              <div className="flex flex-col items-center bg-slate-800/50 rounded-lg p-2">
+                <MessageSquare className="w-4 h-4 text-cyan-400 mb-1" />
+                <span className="text-white text-sm font-bold">{contextLoaded.chat_sessions}</span>
+                <span className="text-slate-400 text-xs">Chats</span>
               </div>
-              <div className="flex flex-col items-center">
-                <MessageSquare className="w-4 h-4 text-green-400 mb-1" />
-                <span className="text-green-200 text-xs">{contextLoaded.chat_sessions} Chats</span>
-              </div>
-              <div className="flex flex-col items-center">
-                <Activity className="w-4 h-4 text-green-400 mb-1" />
-                <span className="text-green-200 text-xs">{contextLoaded.lab_results} Tests</span>
-              </div>
+              {contextLoaded.doctors && contextLoaded.doctors > 0 && (
+                <div className="flex flex-col items-center bg-slate-800/50 rounded-lg p-2">
+                  <User className="w-4 h-4 text-cyan-400 mb-1" />
+                  <span className="text-white text-sm font-bold">{contextLoaded.doctors}</span>
+                  <span className="text-slate-400 text-xs">Doctors</span>
+                </div>
+              )}
+              {contextLoaded.lab_tests && contextLoaded.lab_tests > 0 && (
+                <div className="flex flex-col items-center bg-slate-800/50 rounded-lg p-2">
+                  <FlaskConical className="w-4 h-4 text-cyan-400 mb-1" />
+                  <span className="text-white text-sm font-bold">{contextLoaded.lab_tests}</span>
+                  <span className="text-slate-400 text-xs">Lab Tests</span>
+                </div>
+              )}
               {contextLoaded.escalations > 0 && (
-                <div className="flex flex-col items-center">
+                <div className="flex flex-col items-center bg-slate-800/50 rounded-lg p-2">
                   <AlertTriangle className="w-4 h-4 text-yellow-400 mb-1" />
-                  <span className="text-yellow-200 text-xs">{contextLoaded.escalations} Alerts</span>
+                  <span className="text-white text-sm font-bold">{contextLoaded.escalations}</span>
+                  <span className="text-slate-400 text-xs">Alerts</span>
                 </div>
               )}
             </div>
@@ -764,19 +782,19 @@ export default function VoiceCallPage() {
 
         {/* Error */}
         {error && (
-          <div className="bg-red-500/20 border border-red-500/30 rounded-lg px-4 py-3 max-w-md">
+          <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 max-w-md">
             <p className="text-red-300 text-sm text-center">{error}</p>
           </div>
         )}
 
         {/* Patient */}
         {patientInfo && (
-          <div className="bg-white/10 backdrop-blur rounded-xl px-6 py-4 flex items-center gap-4">
-            <div className="w-12 h-12 bg-purple-500/30 rounded-full flex items-center justify-center">
-              <User className="w-6 h-6 text-purple-300" />
+          <div className="bg-slate-800/50 border border-cyan-500/30 rounded-xl px-6 py-4 flex items-center gap-4">
+            <div className="w-12 h-12 bg-cyan-500/20 rounded-full flex items-center justify-center border border-cyan-500/30">
+              <User className="w-6 h-6 text-cyan-400" />
             </div>
             <div>
-              <p className="text-white font-medium">{patientInfo.full_name}</p>
+              <p className="text-white font-semibold">{patientInfo.full_name}</p>
               <p className="text-slate-400 text-sm">
                 {patientInfo.age ? `${patientInfo.age}Y` : ''}{patientInfo.gender ? ` • ${patientInfo.gender}` : ''}
               </p>
@@ -786,8 +804,8 @@ export default function VoiceCallPage() {
 
         {/* AI Text (Live transcription) */}
         {callState === 'connected' && currentAIText && (
-          <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl px-6 py-4 max-w-md">
-            <p className="text-purple-200 text-sm">{currentAIText}</p>
+          <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl px-6 py-4 max-w-md">
+            <p className="text-cyan-200 text-sm">{currentAIText}</p>
           </div>
         )}
 
@@ -796,9 +814,10 @@ export default function VoiceCallPage() {
           <button
             onClick={toggleMute}
             disabled={callState !== 'connected'}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all
-              ${callState !== 'connected' ? 'bg-slate-700/50 text-slate-500 cursor-not-allowed'
-                : isMuted ? 'bg-red-500/20 text-red-400' : 'bg-slate-700 text-white hover:bg-slate-600'}`}
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all border
+              ${callState !== 'connected' ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed border-slate-700/50'
+                : isMuted ? 'bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30' 
+                : 'bg-slate-700/50 text-white border-slate-600 hover:bg-slate-700'}`}
           >
             {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
           </button>
@@ -808,10 +827,10 @@ export default function VoiceCallPage() {
             disabled={callState === 'initializing' || callState === 'loading_context' || callState === 'ending'}
             className={`w-20 h-20 rounded-full flex items-center justify-center transition-all shadow-lg
               ${callState === 'idle' || callState === 'error' || callState === 'ended'
-                ? 'bg-gradient-to-br from-green-500 to-emerald-600 hover:from-green-400 text-white shadow-green-500/30'
+                ? 'bg-gradient-to-br from-emerald-400 to-green-500 hover:from-emerald-300 hover:to-green-400 text-white shadow-emerald-500/30'
                 : callState === 'initializing' || callState === 'loading_context' || callState === 'ending'
                   ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
-                  : 'bg-gradient-to-br from-red-500 to-rose-600 hover:from-red-400 text-white shadow-red-500/30'}`}
+                  : 'bg-gradient-to-br from-red-500 to-rose-600 hover:from-red-400 hover:to-rose-500 text-white shadow-red-500/30'}`}
           >
             {callState === 'initializing' || callState === 'loading_context' || callState === 'ending' ? 
               <Loader2 className="w-8 h-8 animate-spin" />
@@ -823,9 +842,10 @@ export default function VoiceCallPage() {
           <button
             onClick={toggleSpeaker}
             disabled={callState !== 'connected'}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all
-              ${callState !== 'connected' ? 'bg-slate-700/50 text-slate-500 cursor-not-allowed'
-                : !isSpeakerOn ? 'bg-red-500/20 text-red-400' : 'bg-slate-700 text-white hover:bg-slate-600'}`}
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all border
+              ${callState !== 'connected' ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed border-slate-700/50'
+                : !isSpeakerOn ? 'bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30' 
+                : 'bg-slate-700/50 text-white border-slate-600 hover:bg-slate-700'}`}
           >
             {isSpeakerOn ? <Volume2 className="w-6 h-6" /> : <VolumeX className="w-6 h-6" />}
           </button>
@@ -833,34 +853,34 @@ export default function VoiceCallPage() {
 
         {/* Idle instruction */}
         {callState === 'idle' && (
-          <p className="text-slate-500 text-sm text-center max-w-xs">
+          <p className="text-slate-400 text-sm text-center max-w-xs">
             Tap the green button to call Dr. Bridge.
             <br />
-            <span className="text-slate-600">Dr. Bridge will have access to all your medical records.</span>
+            <span className="text-slate-500">Dr. Bridge will have access to all your medical records.</span>
           </p>
         )}
 
         {/* Call Summary */}
         {callState === 'ended' && callStats.duration > 0 && (
-          <div className="bg-slate-800/50 rounded-xl p-6 max-w-sm w-full space-y-4">
+          <div className="bg-slate-800/50 border border-cyan-500/30 rounded-xl p-6 max-w-sm w-full space-y-4">
             <h3 className="text-white font-semibold text-center">Call Summary</h3>
             <div className="grid grid-cols-3 gap-4 text-center">
               <div>
-                <p className="text-2xl font-bold text-purple-400">{formatDuration(callStats.duration)}</p>
-                <p className="text-slate-500 text-xs">Duration</p>
+                <p className="text-2xl font-bold text-cyan-400">{formatDuration(callStats.duration)}</p>
+                <p className="text-slate-400 text-xs">Duration</p>
               </div>
               <div>
-                <p className="text-2xl font-bold text-green-400">{callStats.patientMessages}</p>
-                <p className="text-slate-500 text-xs">You</p>
+                <p className="text-2xl font-bold text-emerald-400">{callStats.patientMessages}</p>
+                <p className="text-slate-400 text-xs">You</p>
               </div>
               <div>
                 <p className="text-2xl font-bold text-blue-400">{callStats.aiMessages}</p>
-                <p className="text-slate-500 text-xs">AI</p>
+                <p className="text-slate-400 text-xs">AI</p>
               </div>
             </div>
             <button
               onClick={() => router.push(`/${org}/dashboard`)}
-              className="w-full py-3 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg"
+              className="w-full py-3 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-xl font-medium transition-colors border border-cyan-500/30"
             >
               Back to Dashboard
             </button>
@@ -868,30 +888,46 @@ export default function VoiceCallPage() {
         )}
       </main>
 
-      {/* Debug Panel */}
-      {showDebug && debugLogs.length > 0 && (
-        <div className="fixed bottom-4 right-4 w-[450px] max-h-80 overflow-auto bg-black/95 rounded-lg p-3 text-xs font-mono border border-slate-700">
-          <div className="flex justify-between items-center mb-2 sticky top-0 bg-black/95 pb-2 border-b border-slate-700">
-            <span className="text-green-400 font-bold">🔧 Debug ({debugLogs.length})</span>
+      {/* Debug Toggle Link - Bottom Left (Subtle) */}
+      <button
+        onClick={() => setShowDebug(!showDebug)}
+        className="fixed bottom-4 left-4 text-xs text-slate-600 hover:text-slate-400 transition-colors z-50"
+      >
+        {showDebug ? '🔧 Hide Debug' : '🔧 Debug'}
+        {!showDebug && debugLogs.length > 0 && (
+          <span className="ml-1 text-slate-500">({debugLogs.length})</span>
+        )}
+      </button>
+
+      {/* Debug Panel - Shows when toggled */}
+      {showDebug && (
+        <div className="fixed bottom-12 left-4 w-[450px] max-h-80 overflow-auto bg-slate-900/95 rounded-lg p-3 text-xs font-mono border border-slate-700 shadow-xl z-40">
+          <div className="flex justify-between items-center mb-2 sticky top-0 bg-slate-900/95 pb-2 border-b border-slate-700">
+            <span className="text-cyan-400 font-bold">🔧 Debug ({debugLogs.length})</span>
             <button onClick={() => setDebugLogs([])} className="text-slate-400 hover:text-white">Clear</button>
           </div>
-          <div className="space-y-0.5">
-            {debugLogs.map((log, i) => (
-              <div key={i} className={`
-                ${log.includes('❌') ? 'text-red-400' : ''}
-                ${log.includes('✅') || log.includes('🎉') ? 'text-green-400' : ''}
-                ${log.includes('⚠️') ? 'text-yellow-400' : ''}
-                ${log.includes('🎵') || log.includes('🔊') ? 'text-cyan-400 font-bold' : ''}
-                ${log.includes('🔗') || log.includes('🧊') ? 'text-blue-400' : ''}
-                ${log.includes('🤖') ? 'text-purple-400' : ''}
-                ${log.includes('👤') ? 'text-green-300' : ''}
-                ${log.includes('CONTEXT') ? 'text-cyan-300 font-bold' : ''}
-                ${!log.match(/[❌✅⚠️🎵🔊🔗🧊🎉🤖👤]/) && !log.includes('CONTEXT') ? 'text-slate-300' : ''}
-              `}>
-                {log}
-              </div>
-            ))}
-          </div>
+          {debugLogs.length === 0 ? (
+            <p className="text-slate-500">No logs yet. Start a call to see debug info.</p>
+          ) : (
+            <div className="space-y-0.5">
+              {debugLogs.map((log, i) => (
+                <div key={i} className={`
+                  ${log.includes('❌') ? 'text-red-400' : ''}
+                  ${log.includes('✅') || log.includes('🎉') ? 'text-emerald-400' : ''}
+                  ${log.includes('⚠️') ? 'text-yellow-400' : ''}
+                  ${log.includes('🎵') || log.includes('🔊') ? 'text-cyan-400 font-bold' : ''}
+                  ${log.includes('🔗') || log.includes('🧊') ? 'text-blue-400' : ''}
+                  ${log.includes('🤖') ? 'text-cyan-400' : ''}
+                  ${log.includes('👤') ? 'text-emerald-300' : ''}
+                  ${log.includes('CONTEXT') ? 'text-cyan-300 font-bold' : ''}
+                  ${log.includes('🏥') || log.includes('👨‍⚕️') ? 'text-cyan-400' : ''}
+                  ${!log.match(/[❌✅⚠️🎵🔊🔗🧊🎉🤖👤🏥]/) && !log.includes('CONTEXT') ? 'text-slate-300' : ''}
+                `}>
+                  {log}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
