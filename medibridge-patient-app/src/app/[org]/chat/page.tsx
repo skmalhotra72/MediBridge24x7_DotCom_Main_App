@@ -2497,28 +2497,47 @@ const ConnectToDoctorModal = ({
     }
   }, [prescriptionId, isRefreshing, supabase, fetchPrescriptionItems, addAiAnswerToMessages]);
 
-  // Timer effects
-  useEffect(() => {
-    let intervalId: NodeJS.Timeout;
-    
-    if (processingStatus === 'processing') {
-      if (!processingStartTime) {
-        setProcessingStartTime(Date.now());
-      }
-      
-      intervalId = setInterval(() => {
-        if (processingStartTime) {
-          const elapsed = Math.floor((Date.now() - processingStartTime) / 1000);
-          setElapsedTime(elapsed);
-        }
-      }, 1000);
-    } else {
-      setElapsedTime(0);
-      setProcessingStartTime(null);
+// Timer effects with HARD TIMEOUT
+useEffect(() => {
+  let intervalId: NodeJS.Timeout;
+  const HARD_TIMEOUT_SECONDS = 180; // 3 minutes max
+
+  if (processingStatus === 'processing') {
+    if (!processingStartTime) {
+      setProcessingStartTime(Date.now());
     }
     
-    return () => clearInterval(intervalId);
-  }, [processingStatus, processingStartTime]);
+    intervalId = setInterval(() => {
+      if (processingStartTime) {
+        const elapsed = Math.floor((Date.now() - processingStartTime) / 1000);
+        setElapsedTime(elapsed);
+        
+        // HARD TIMEOUT: If processing takes more than 3 minutes, show error
+        if (elapsed >= HARD_TIMEOUT_SECONDS) {
+          console.log('⏱️ Hard timeout reached - stopping processing');
+          setProcessingStatus('error');
+          setProcessingProgress('Processing timed out');
+          setMessages(prev => {
+            const filtered = prev.filter(m => m.id !== 'processing' && m.id !== 'loading');
+            return [...filtered, {
+              id: `timeout-${Date.now()}`,
+              role: 'assistant' as const,
+              content: 'Sorry, processing is taking longer than expected. This may be due to:\n\n• High server load\n• Complex document\n• Network issues\n\nPlease try uploading your document again. If the problem persists, click "Connect to Doctor" for assistance.',
+              timestamp: new Date(),
+              type: 'error' as const
+            }];
+          });
+          setProcessingStartTime(null);
+        }
+      }
+    }, 1000);
+  } else {
+    setElapsedTime(0);
+    setProcessingStartTime(null);
+  }
+
+  return () => clearInterval(intervalId);
+}, [processingStatus, processingStartTime]);
 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
