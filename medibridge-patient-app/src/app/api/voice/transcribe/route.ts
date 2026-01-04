@@ -73,14 +73,13 @@ export async function POST(request: NextRequest) {
     console.log('   - Type:', file.type);
     console.log('   - Size:', file.size);
 
-    // Call Whisper API with verbose logging
+    // Call Whisper API - let it auto-detect language (Hindi/English/Hinglish)
     const startTime = Date.now();
     
     const transcription = await openai.audio.transcriptions.create({
       file: file,
       model: 'whisper-1',
-      response_format: 'verbose_json', // Get detailed response
-      prompt: 'Healthcare voice message about medicines and prescriptions. May be in Hindi, English, or Hinglish.',
+      response_format: 'verbose_json',
     });
 
     const endTime = Date.now();

@@ -27,20 +27,24 @@ export default function VoiceNoteRecorder({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const recordedMimeTypeRef = useRef<string>('audio/webm');
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      if (audioContextRef.current) audioContextRef.current.close();
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
+      cleanup();
     };
   }, []);
 
-  // Monitor audio levels to verify mic is capturing
+  const cleanup = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    if (audioContextRef.current) {
+      try { audioContextRef.current.close(); } catch (e) {}
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+    }
+  };
+
   const startAudioLevelMonitoring = (stream: MediaStream) => {
     try {
       const audioContext = new AudioContext();
@@ -57,11 +61,9 @@ export default function VoiceNoteRecorder({
       
       const checkLevel = () => {
         if (!analyserRef.current) return;
-        
         analyser.getByteFrequencyData(dataArray);
         const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
         setAudioLevel(average);
-        
         animationFrameRef.current = requestAnimationFrame(checkLevel);
       };
       
@@ -72,61 +74,34 @@ export default function VoiceNoteRecorder({
   };
 
   const startRecording = async () => {
-    if (disabled || isRecording) return;
+    if (disabled) return;
     
-    console.log('🎤 VoiceNoteRecorder: Starting...');
+    console.log('🎤 Starting recording...');
     
     try {
       chunksRef.current = [];
       durationRef.current = 0;
       
-      // Enhanced audio constraints for better capture
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          sampleRate: { ideal: 48000 },
-          channelCount: { ideal: 1 },
+          sampleRate: 16000,
+          channelCount: 1,
         } 
       });
       
       streamRef.current = stream;
-      
-      // Log audio track info
-      const audioTrack = stream.getAudioTracks()[0];
-      console.log('🎤 Audio track:', audioTrack.label);
-      console.log('🎤 Track settings:', JSON.stringify(audioTrack.getSettings()));
-      
-      // Start audio level monitoring
       startAudioLevelMonitoring(stream);
       
-      // Try OGG first, then other formats - OGG has better Whisper compatibility
-      const mimeTypes = [
-        'audio/ogg;codecs=opus',
-        'audio/ogg',
-        'audio/mp4',
-        'audio/webm;codecs=opus',
-        'audio/webm',
-      ];
-      
-      let mimeType = '';
-      for (const type of mimeTypes) {
-        if (MediaRecorder.isTypeSupported(type)) {
-          mimeType = type;
-          console.log('🎤 Selected MIME type:', type);
-          break;
-        }
+      // Use webm which works best with Whisper
+      let mimeType = 'audio/webm';
+      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        mimeType = 'audio/webm;codecs=opus';
       }
       
-      // Fallback if nothing supported
-      if (!mimeType) {
-        mimeType = 'audio/webm';
-        console.warn('🎤 No preferred MIME type supported, using default:', mimeType);
-      }
-      
-      // Store the MIME type for later use when creating the blob
-      recordedMimeTypeRef.current = mimeType;
+      console.log('🎤 Using MIME type:', mimeType);
       
       const mediaRecorder = new MediaRecorder(stream, { 
         mimeType,
@@ -137,63 +112,51 @@ export default function VoiceNoteRecorder({
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
           chunksRef.current.push(e.data);
-          console.log('🎤 Chunk:', e.data.size, 'bytes, total chunks:', chunksRef.current.length);
+          console.log('🎤 Chunk received:', e.data.size, 'bytes');
         }
       };
 
       mediaRecorder.onstop = () => {
-        console.log('🎤 Recording stopped');
+        console.log('🎤 MediaRecorder stopped');
         
-        // Stop audio monitoring
+        // Cleanup
         if (animationFrameRef.current) {
           cancelAnimationFrame(animationFrameRef.current);
-          animationFrameRef.current = null;
         }
         if (audioContextRef.current) {
-          audioContextRef.current.close();
-          audioContextRef.current = null;
+          try { audioContextRef.current.close(); } catch (e) {}
         }
-        analyserRef.current = null;
-        
         stream.getTracks().forEach(track => track.stop());
         if (timerRef.current) {
           clearInterval(timerRef.current);
-          timerRef.current = null;
         }
         
         const finalDuration = durationRef.current;
+        const totalSize = chunksRef.current.reduce((acc, chunk) => acc + chunk.size, 0);
+        
+        console.log('🎤 Final duration:', finalDuration, 'seconds');
+        console.log('🎤 Total size:', totalSize, 'bytes');
+        console.log('🎤 Chunks:', chunksRef.current.length);
+        
         setDuration(0);
         setAudioLevel(0);
         
-        console.log('🎤 Final duration:', finalDuration, 'seconds');
-        console.log('🎤 Total chunks:', chunksRef.current.length);
-        
-        const totalSize = chunksRef.current.reduce((acc, chunk) => acc + chunk.size, 0);
-        console.log('🎤 Total size:', totalSize, 'bytes');
-        
-        if (chunksRef.current.length > 0 && totalSize > 1000) {
-          // Use the actual MIME type that was used for recording
-          const actualMimeType = mediaRecorder.mimeType || recordedMimeTypeRef.current;
-          const audioBlob = new Blob(chunksRef.current, { type: actualMimeType });
-          console.log('🎤 Audio blob created:', audioBlob.size, 'bytes, type:', audioBlob.type);
-          onRecordingComplete(audioBlob, Math.max(1, finalDuration));
+        if (chunksRef.current.length > 0 && finalDuration >= 1) {
+          const audioBlob = new Blob(chunksRef.current, { type: mimeType });
+          console.log('🎤 Created blob:', audioBlob.size, 'bytes');
+          onRecordingComplete(audioBlob, finalDuration);
         } else {
-          console.warn('🎤 Recording too short or no data');
+          console.warn('🎤 Recording too short:', finalDuration, 'seconds');
+          alert('Please record for at least 2 seconds. Click the mic to start, speak, then click again to stop.');
         }
       };
 
-      mediaRecorder.onerror = (e) => {
-        console.error('🎤 MediaRecorder error:', e);
-      };
-
-      // Start recording with 250ms timeslice
-      mediaRecorder.start(250);
+      // Request data every 500ms
+      mediaRecorder.start(500);
       setIsRecording(true);
       onRecordingStart?.();
       
-      console.log('🎤 Recording started with MIME type:', mimeType);
-      
-      setDuration(0);
+      // Duration timer
       timerRef.current = setInterval(() => {
         durationRef.current += 1;
         setDuration(prev => {
@@ -206,23 +169,30 @@ export default function VoiceNoteRecorder({
       }, 1000);
 
     } catch (err: any) {
-      console.error('🎤 Microphone error:', err);
-      
+      console.error('🎤 Error:', err);
       if (err.name === 'NotAllowedError') {
-        alert('Microphone permission denied. Please allow microphone access in your browser settings.');
+        alert('Microphone permission denied. Please allow microphone access.');
       } else if (err.name === 'NotFoundError') {
-        alert('No microphone found. Please connect a microphone.');
+        alert('No microphone found.');
       } else {
-        alert('Could not access microphone: ' + err.message);
+        alert('Microphone error: ' + err.message);
       }
     }
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       console.log('🎤 Stopping recording...');
       mediaRecorderRef.current.stop();
       setIsRecording(false);
+    }
+  };
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
     }
   };
 
@@ -232,21 +202,14 @@ export default function VoiceNoteRecorder({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Calculate visual indicator size based on audio level
-  const levelIndicatorSize = Math.min(100, Math.max(0, audioLevel)) / 100;
-
   return (
     <div className="flex items-center gap-2">
       {isRecording && (
         <div className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border border-red-500/30 rounded-full animate-pulse">
-          <span 
-            className="w-2 h-2 bg-red-500 rounded-full transition-transform"
-            style={{ transform: `scale(${1 + levelIndicatorSize})` }}
-          />
+          <span className="w-2 h-2 bg-red-500 rounded-full" />
           <span className="text-sm text-red-400 font-medium tabular-nums">
             {formatDuration(duration)}
           </span>
-          {/* Audio level indicator */}
           <div className="w-12 h-1.5 bg-red-900/50 rounded-full overflow-hidden">
             <div 
               className="h-full bg-red-500 transition-all duration-75"
@@ -257,18 +220,14 @@ export default function VoiceNoteRecorder({
       )}
       
       <button
-        onMouseDown={startRecording}
-        onMouseUp={stopRecording}
-        onMouseLeave={isRecording ? stopRecording : undefined}
-        onTouchStart={(e) => { e.preventDefault(); startRecording(); }}
-        onTouchEnd={(e) => { e.preventDefault(); stopRecording(); }}
+        onClick={toggleRecording}
         disabled={disabled}
         className={`p-3 rounded-full transition-all duration-200 ${
           isRecording 
-            ? 'bg-red-500 scale-110 shadow-lg shadow-red-500/30' 
+            ? 'bg-red-500 scale-110 shadow-lg shadow-red-500/30 animate-pulse' 
             : 'bg-cyan-500 hover:bg-cyan-600 hover:scale-105'
         } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-        title={isRecording ? 'Release to send' : 'Hold to record'}
+        title={isRecording ? 'Click to stop recording' : 'Click to start recording'}
       >
         {isRecording ? (
           <Square className="w-5 h-5 text-white fill-white" />
