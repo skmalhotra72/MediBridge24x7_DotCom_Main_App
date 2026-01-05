@@ -1043,7 +1043,12 @@ export default function DashboardPage() {
             >
               Prescriptions
             </button>
-            <button className="text-slate-400 hover:text-white text-sm">Profile</button>
+            <button 
+  onClick={() => router.push(`/${org}/profile`)}
+  className="text-slate-400 hover:text-white text-sm"
+>
+  Profile
+</button>
             
             {/* User Info & Logout */}
             <div className="flex items-center gap-3 ml-2 pl-4 border-l border-slate-700">

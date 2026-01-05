@@ -216,7 +216,7 @@ function AuthContent() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const org = params.org as string;
+  const org = (params.organization || params.org) as string;
   const initialMode = searchParams.get('mode') || 'login';
 
   // Auth mode: 'login' | 'signup' | 'otp-phone' | 'otp-verify' | 'otp-profile'
@@ -998,12 +998,12 @@ function AuthContent() {
                 />
                 <span className="text-sm text-gray-600">Remember me</span>
               </label>
-              <a 
-                href="#" 
+              <Link 
+                href={`/${org}/auth/forgot-password`}
                 className={`text-sm font-medium ${themePreset.buttonText} ${themePreset.buttonTextHover} transition-colors`}
               >
                 Forgot password?
-              </a>
+              </Link>
             </div>
           )}
 
@@ -1094,16 +1094,16 @@ function AuthContent() {
               </Link>
               {contactPhone && (
                 <a
-                  href={`tel:${contactPhone}`}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
-                  style={{ background: theme.primary }}
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                  </svg>
-                  Call Now
-                </a>
-              )}
+                href={`tel:${contactPhone}`}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
+                style={{ background: theme.primary }}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                </svg>
+                Call Now
+              </a>
+            )}
             </div>
           </div>
         </div>
