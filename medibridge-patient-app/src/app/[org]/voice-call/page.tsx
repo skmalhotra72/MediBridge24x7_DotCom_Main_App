@@ -633,11 +633,14 @@ const { error: updateError } = await supabase
   .from('voice_calls')
   .update({
     call_status: 'completed',
-    call_end_time: callEndTime.toISOString(),
-    call_duration_seconds: finalDuration,
-    full_transcript: fullTranscriptText || null,
-    transcript: transcriptJsonb.length > 0 ? transcriptJsonb : null,
-    transcript_word_count: fullTranscriptText ? fullTranscriptText.split(' ').length : 0
+    ended_at: callEndTime.toISOString(),
+    duration_seconds: finalDuration,
+    conversation_transcript: transcriptJsonb.length > 0 ? transcriptJsonb : null,
+    call_summary: fullTranscriptText || null,
+    metadata: {
+      transcript_word_count: fullTranscriptText ? fullTranscriptText.split(' ').length : 0,
+      message_count: finalTranscript.length
+    }
   })
   .eq('id', voiceCallId);
 

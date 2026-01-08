@@ -658,20 +658,25 @@ Make every patient feel valued and every interaction build trust in ${clinicName
     console.log(`   📋 Prescriptions: ${prescriptions?.length || 0}`);
     console.log(`   💊 Medicines: ${allMedicines.length}`);
 
-    // ============================================
+// ============================================
     // STEP 10: Create Voice Call Record
     // ============================================
-    
+
+    // Generate a unique call_sid for web-based calls
+    const webCallSid = `WEB_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
     const { data: voiceCall, error: callError } = await supabase
       .from('voice_calls')
       .insert({
+        call_sid: webCallSid,
         organization_id,
         patient_id,
         call_status: 'initiated',
-        call_start_time: new Date().toISOString(),
-        detected_language: 'en',
-        patient_preferred_language: 'en',
-        context_loaded: {
+        call_direction: 'outbound',
+        call_source: 'web',
+        started_at: new Date().toISOString(),
+        ai_model: 'gpt-4o-realtime-preview-2024-12-17',
+        metadata: {
           prescriptions_count: prescriptions?.length || 0,
           medicines_count: allMedicines.length,
           chat_sessions_count: chatSessions?.length || 0,
@@ -679,7 +684,9 @@ Make every patient feel valued and every interaction build trust in ${clinicName
           escalations_count: escalations.length,
           doctors_count: doctors.length,
           lab_tests_count: labTests.length,
-          clinic_context_loaded: !!clinicContext
+          clinic_context_loaded: !!clinicContext,
+          patient_name: patient.full_name,
+          clinic_name: clinicName
         }
       })
       .select('id')

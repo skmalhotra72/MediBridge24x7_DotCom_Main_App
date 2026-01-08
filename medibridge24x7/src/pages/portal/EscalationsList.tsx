@@ -24,8 +24,25 @@ import {
   Loader2,
   Timer,
   PhoneCall,
-  UserCheck
+  UserCheck,
+  MessageCircle
 } from 'lucide-react';
+
+// Helper function to format phone for WhatsApp deep link
+const formatPhoneForWhatsApp = (phone: string | null | undefined): string => {
+  if (!phone) return '';
+  // Remove all non-digits and ensure country code
+  let cleaned = phone.replace(/\D/g, '');
+  // If starts with 0, replace with 91 (India)
+  if (cleaned.startsWith('0')) {
+    cleaned = '91' + cleaned.substring(1);
+  }
+  // If doesn't start with country code, add 91
+  if (cleaned.length === 10) {
+    cleaned = '91' + cleaned;
+  }
+  return cleaned;
+};
 
 // ============================================
 // TYPE DEFINITIONS
@@ -239,6 +256,115 @@ function DeadlineTimer({ deadline, status }: DeadlineTimerProps) {
 }
 
 // ============================================
+// WHATSAPP MESSAGE MODAL COMPONENT
+// ============================================
+
+interface WhatsAppMessageModalProps {
+  escalation: Escalation | null;
+  onClose: () => void;
+  onSend: (message: string) => void;
+  isLoading: boolean;
+}
+
+function WhatsAppMessageModal({ escalation, onClose, onSend, isLoading }: WhatsAppMessageModalProps) {
+  const { user, organization } = useAuthStore();
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    if (escalation) {
+      const defaultMessage = `Hello ${escalation.patient?.name || 'there'}! 👋
+
+This is ${user?.user_metadata?.full_name || 'clinic staff'} from ${organization?.name || 'City General Hospital'}.
+
+We've reviewed your escalation regarding: "${escalation.reason || 'your query'}"
+
+${escalation.ai_recommendation ? `Our recommendation: ${escalation.ai_recommendation}` : 'Our medical team is ready to assist you.'}
+
+Please let us know if you have any questions or need further assistance.`;
+      
+      setMessage(defaultMessage);
+    }
+  }, [escalation, user, organization]);
+
+  if (!escalation) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl">
+        <div className="p-5 border-b border-slate-700">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
+              <MessageCircle className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-white">Send WhatsApp Message</h3>
+              <p className="text-sm text-slate-400">
+                To {escalation.patient?.name || 'patient'} • {escalation.patient?.phone || 'N/A'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-5">
+          <div className="mb-4 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-xl">
+            <div className="flex items-center gap-2 mb-1">
+              <MessageSquare className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="text-xs font-semibold text-cyan-400 uppercase tracking-wide">Patient's Query</span>
+            </div>
+            <p className="text-sm text-cyan-100">
+              "{escalation.reason || 'General escalation'}"
+            </p>
+          </div>
+
+          <label className="block text-sm font-medium text-slate-300 mb-2">
+            Your Message
+          </label>
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Type your WhatsApp message here..."
+            className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-green-500 resize-none"
+            rows={10}
+          />
+          
+          <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+            <MessageCircle className="w-3 h-3" />
+            <span>Message will be sent via WhatsApp Business API</span>
+          </div>
+        </div>
+
+        <div className="p-5 border-t border-slate-700 flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={isLoading}
+            className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onSend(message)}
+            disabled={isLoading || !message.trim()}
+            className="flex-1 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-xl font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Sending...</span>
+              </>
+            ) : (
+              <>
+                <MessageCircle className="w-4 h-4" />
+                <span>Send WhatsApp</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
 // QUICK RESOLVE MODAL COMPONENT
 // ============================================
 
@@ -257,7 +383,6 @@ function QuickResolveModal({ escalation, onClose, onConfirm, isLoading }: QuickR
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl">
-        {/* Header */}
         <div className="p-5 border-b border-slate-700">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
@@ -272,7 +397,6 @@ function QuickResolveModal({ escalation, onClose, onConfirm, isLoading }: QuickR
           </div>
         </div>
 
-        {/* Content */}
         <div className="p-5">
           <label className="block text-sm font-medium text-slate-300 mb-2">
             Resolution Notes (Optional)
@@ -286,7 +410,6 @@ function QuickResolveModal({ escalation, onClose, onConfirm, isLoading }: QuickR
           />
         </div>
 
-        {/* Footer */}
         <div className="p-5 border-t border-slate-700 flex gap-3">
           <button
             onClick={onClose}
@@ -328,7 +451,6 @@ interface AssignModalProps {
 function AssignModal({ escalation, doctors, onClose, onConfirm, isLoading }: AssignModalProps) {
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>('');
 
-  // Reset selection when modal opens
   useEffect(() => {
     if (escalation) {
       setSelectedDoctorId('');
@@ -340,7 +462,6 @@ function AssignModal({ escalation, doctors, onClose, onConfirm, isLoading }: Ass
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl">
-        {/* Header */}
         <div className="p-5 border-b border-slate-700">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
@@ -355,7 +476,6 @@ function AssignModal({ escalation, doctors, onClose, onConfirm, isLoading }: Ass
           </div>
         </div>
 
-        {/* Content */}
         <div className="p-5">
           <label className="block text-sm font-medium text-slate-300 mb-2">
             Select Doctor
@@ -373,7 +493,6 @@ function AssignModal({ escalation, doctors, onClose, onConfirm, isLoading }: Ass
             ))}
           </select>
 
-          {/* Selected Doctor Preview */}
           {selectedDoctorId && (
             <div className="mt-4 p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
               <p className="text-sm text-purple-300">
@@ -397,7 +516,6 @@ function AssignModal({ escalation, doctors, onClose, onConfirm, isLoading }: Ass
           )}
         </div>
 
-        {/* Footer */}
         <div className="p-5 border-t border-slate-700 flex gap-3">
           <button
             onClick={onClose}
@@ -432,9 +550,10 @@ interface EscalationDetailModalProps {
   escalation: Escalation;
   onClose: () => void;
   onStatusUpdate: (id: string, status: string) => void;
+  onSendWhatsApp: (escalation: Escalation) => void;
 }
 
-function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: EscalationDetailModalProps) {
+function EscalationDetailModal({ escalation, onClose, onStatusUpdate, onSendWhatsApp }: EscalationDetailModalProps) {
   const [updating, setUpdating] = useState(false);
   const navigate = useNavigate();
 
@@ -484,7 +603,6 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-slate-700">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center">
@@ -503,9 +621,7 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
           </button>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          {/* Status & Severity */}
           <div className="flex items-center gap-3 flex-wrap">
             <SeverityBadge severity={escalation.severity} size="md" />
             <StatusBadge status={escalation.status} size="md" />
@@ -516,7 +632,6 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
             </span>
           </div>
 
-          {/* Patient's Reason - Highlighted */}
           {escalation.reason && (
             <div className="p-4 bg-cyan-500/10 rounded-xl border border-cyan-500/30">
               <h3 className="text-sm font-medium text-cyan-400 mb-2 flex items-center gap-2">
@@ -529,7 +644,6 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
             </div>
           )}
 
-          {/* Summary */}
           {escalation.escalation_summary && escalation.escalation_summary !== escalation.reason && (
             <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
               <h3 className="text-sm font-medium text-slate-400 mb-2">Escalation Summary</h3>
@@ -539,7 +653,6 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
             </div>
           )}
 
-          {/* Patient Information */}
           {escalation.patient && (
             <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
               <div className="flex items-center justify-between mb-3">
@@ -586,7 +699,6 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
             </div>
           )}
 
-          {/* Assigned Doctor */}
           {escalation.doctor_name && (
             <div className="p-4 bg-purple-500/10 rounded-xl border border-purple-500/30">
               <h3 className="text-sm font-medium text-purple-400 mb-2 flex items-center gap-2">
@@ -597,7 +709,6 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
             </div>
           )}
 
-          {/* AI Recommendation */}
           {escalation.ai_recommendation && (
             <div className="p-4 bg-purple-500/10 rounded-xl border border-purple-500/30">
               <h3 className="text-sm font-medium text-purple-400 mb-2 flex items-center gap-2">
@@ -608,7 +719,6 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
             </div>
           )}
 
-          {/* Chat Context */}
           {escalation.chat_session && (
             <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
               <div className="flex items-center justify-between mb-3">
@@ -630,7 +740,6 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
             </div>
           )}
 
-          {/* Type & Additional Info */}
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
               <h3 className="text-sm font-medium text-slate-400 mb-1">Escalation Type</h3>
@@ -647,7 +756,6 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
           </div>
         </div>
 
-        {/* Footer Actions */}
         <div className="p-5 border-t border-slate-700 bg-slate-800/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -667,9 +775,29 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
             </div>
             <div className="flex items-center gap-3">
               {escalation.patient?.phone && (
+                <button
+                  onClick={() => onSendWhatsApp(escalation)}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition-colors"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  Send WhatsApp
+                </button>
+              )}
+              {escalation.patient?.phone && (
+                <a
+                  href={`https://wa.me/${formatPhoneForWhatsApp(escalation.patient.phone)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500/30 transition-colors"
+                >
+                  <Phone className="w-4 h-4" />
+                  WA Call
+                </a>
+              )}
+              {escalation.patient?.phone && (
                 <a
                   href={`tel:${escalation.patient.phone}`}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-colors"
                 >
                   <Phone className="w-4 h-4" />
                   Call Patient
@@ -690,7 +818,7 @@ function EscalationDetailModal({ escalation, onClose, onStatusUpdate }: Escalati
 }
 
 // ============================================
-// ESCALATION CARD COMPONENT (ENHANCED)
+// ESCALATION CARD COMPONENT
 // ============================================
 
 interface EscalationCardProps {
@@ -698,9 +826,10 @@ interface EscalationCardProps {
   onClick: () => void;
   onQuickResolve: (escalation: Escalation) => void;
   onAssign: (escalation: Escalation) => void;
+  onSendWhatsApp: (escalation: Escalation) => void;
 }
 
-function EscalationCard({ escalation, onClick, onQuickResolve, onAssign }: EscalationCardProps) {
+function EscalationCard({ escalation, onClick, onQuickResolve, onAssign, onSendWhatsApp }: EscalationCardProps) {
   const formatDate = (date: string) => {
     const d = new Date(date);
     const now = new Date();
@@ -730,7 +859,6 @@ function EscalationCard({ escalation, onClick, onQuickResolve, onAssign }: Escal
           : 'bg-slate-800/30 border-slate-700/50 hover:border-slate-600/50'}
       `}
     >
-      {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
           <SeverityBadge severity={escalation.severity} />
@@ -745,12 +873,10 @@ function EscalationCard({ escalation, onClick, onQuickResolve, onAssign }: Escal
         </div>
       </div>
 
-      {/* Summary Title */}
       <p className="text-white font-medium mb-3 line-clamp-2">
         {escalation.escalation_summary || 'Escalation needs attention'}
       </p>
 
-      {/* Patient's Reason - Highlighted Cyan Box */}
       {escalation.reason && (
         <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/30 mb-4">
           <div className="flex items-center gap-2 mb-1">
@@ -763,7 +889,6 @@ function EscalationCard({ escalation, onClick, onQuickResolve, onAssign }: Escal
         </div>
       )}
 
-      {/* Patient Info */}
       {escalation.patient && (
         <div className="flex items-center gap-4 mb-4">
           <div className="flex items-center gap-2">
@@ -786,7 +911,6 @@ function EscalationCard({ escalation, onClick, onQuickResolve, onAssign }: Escal
         </div>
       )}
 
-      {/* Assigned Doctor Badge */}
       {escalation.doctor_name && (
         <div className="flex items-center gap-2 mb-4 p-2 bg-purple-500/10 border border-purple-500/20 rounded-lg">
           <UserCheck className="w-3.5 h-3.5 text-purple-400" />
@@ -794,7 +918,6 @@ function EscalationCard({ escalation, onClick, onQuickResolve, onAssign }: Escal
         </div>
       )}
 
-      {/* AI Recommendation */}
       {escalation.ai_recommendation && (
         <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 mb-4">
           <div className="flex items-center gap-2 mb-1">
@@ -807,7 +930,6 @@ function EscalationCard({ escalation, onClick, onQuickResolve, onAssign }: Escal
         </div>
       )}
 
-      {/* Chat Summary */}
       {escalation.chat_session && (escalation.chat_session.summary || escalation.chat_session.chat_summary) && (
         <div className="p-3 rounded-xl bg-slate-800/50 mb-4">
           <div className="flex items-center gap-2 mb-1">
@@ -820,7 +942,6 @@ function EscalationCard({ escalation, onClick, onQuickResolve, onAssign }: Escal
         </div>
       )}
 
-      {/* Type Tag */}
       <div className="flex items-center gap-2 text-xs text-slate-500 mb-3">
         {escalation.escalation_type && (
           <span className="px-2 py-0.5 bg-slate-700/50 rounded-full capitalize">
@@ -829,21 +950,44 @@ function EscalationCard({ escalation, onClick, onQuickResolve, onAssign }: Escal
         )}
       </div>
 
-      {/* Quick Actions Footer */}
       <div className="flex items-center gap-2 pt-3 border-t border-slate-700/50">
-        {/* Call Patient */}
+        {escalation.patient?.phone && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSendWhatsApp(escalation);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg text-xs font-medium transition-colors"
+          >
+            <MessageCircle className="w-3.5 h-3.5" />
+            <span>WhatsApp</span>
+          </button>
+        )}
+
+        {escalation.patient?.phone && (
+          <a
+            href={`https://wa.me/${formatPhoneForWhatsApp(escalation.patient.phone)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg text-xs font-medium transition-colors"
+          >
+            <Phone className="w-3.5 h-3.5" />
+            <span>WA Call</span>
+          </a>
+        )}
+
         {escalation.patient?.phone && (
           <a
             href={`tel:${escalation.patient.phone}`}
             onClick={(e) => e.stopPropagation()}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg text-xs font-medium transition-colors"
           >
             <PhoneCall className="w-3.5 h-3.5" />
             <span>Call</span>
           </a>
         )}
 
-        {/* Quick Resolve */}
         {!isResolved && (
           <button
             onClick={(e) => {
@@ -857,7 +1001,6 @@ function EscalationCard({ escalation, onClick, onQuickResolve, onAssign }: Escal
           </button>
         )}
 
-        {/* Assign */}
         {!escalation.assigned_to && !isResolved && (
           <button
             onClick={(e) => {
@@ -871,7 +1014,6 @@ function EscalationCard({ escalation, onClick, onQuickResolve, onAssign }: Escal
           </button>
         )}
 
-        {/* View Details - pushed to right */}
         <button 
           onClick={(e) => {
             e.stopPropagation();
@@ -893,7 +1035,7 @@ function EscalationCard({ escalation, onClick, onQuickResolve, onAssign }: Escal
 
 export function EscalationsList() {
   const navigate = useNavigate();
-  const { organization } = useAuthStore();
+  const { organization, user } = useAuthStore();
   const [escalations, setEscalations] = useState<Escalation[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
@@ -906,14 +1048,15 @@ export function EscalationsList() {
   const [severityFilter, setSeverityFilter] = useState('');
   const [selectedEscalation, setSelectedEscalation] = useState<Escalation | null>(null);
   
-  // Quick resolve state
   const [resolveModalEscalation, setResolveModalEscalation] = useState<Escalation | null>(null);
   const [isResolving, setIsResolving] = useState(false);
 
-  // Assign modal state
   const [assignModalEscalation, setAssignModalEscalation] = useState<Escalation | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
+
+  const [whatsappModalEscalation, setWhatsappModalEscalation] = useState<Escalation | null>(null);
+  const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
 
   const pageSize = 12;
 
@@ -947,7 +1090,6 @@ export function EscalationsList() {
     }
   }, [organization?.id, searchTerm, dateFrom, dateTo, statusFilter, severityFilter, currentPage]);
 
-  // Fetch doctors for assignment dropdown
   useEffect(() => {
     const fetchDoctors = async () => {
       if (!organization?.id) return;
@@ -1001,7 +1143,6 @@ export function EscalationsList() {
     }
   };
 
-  // Handle Quick Resolve
   const handleQuickResolve = async (notes: string) => {
     if (!resolveModalEscalation) return;
 
@@ -1030,13 +1171,11 @@ export function EscalationsList() {
     }
   };
 
-  // Handle Assign to Doctor
   const handleAssign = async (doctorId: string) => {
     if (!assignModalEscalation) return;
 
     setIsAssigning(true);
     try {
-      // Get doctor name for display
       const doctor = doctors.find(d => d.id === doctorId);
       
       const { error } = await supabase
@@ -1049,7 +1188,6 @@ export function EscalationsList() {
         .eq('id', assignModalEscalation.id);
 
       if (!error) {
-        // Update local state
         setEscalations(prev =>
           prev.map(e =>
             e.id === assignModalEscalation.id
@@ -1070,15 +1208,58 @@ export function EscalationsList() {
     }
   };
 
+  const handleSendWhatsApp = async (message: string) => {
+    if (!whatsappModalEscalation) return;
+
+    setIsSendingWhatsApp(true);
+    try {
+      const response = await fetch('https://n8n.nhcare.in/webhook/65dd4d8e-64c9-4dbb-920d-6e54563a2f9a', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          patient_phone: whatsappModalEscalation.patient?.phone,
+          message: message,
+          staff_name: user?.user_metadata?.full_name || 'Clinic Staff',
+          clinic_name: organization?.name || 'City General Hospital'
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.status === 'success') {
+        const { error } = await supabase
+          .from('escalations')
+          .update({
+            status: 'in_progress',
+            responded_at: new Date().toISOString()
+          })
+          .eq('id', whatsappModalEscalation.id);
+
+        if (!error) {
+          handleStatusUpdate(whatsappModalEscalation.id, 'in_progress');
+          alert('✅ WhatsApp message sent successfully!');
+          setWhatsappModalEscalation(null);
+        }
+      } else {
+        throw new Error('WhatsApp send failed');
+      }
+    } catch (err) {
+      console.error('Error sending WhatsApp:', err);
+      alert('❌ Failed to send WhatsApp message. Please try again.');
+    } finally {
+      setIsSendingWhatsApp(false);
+    }
+  };
+
   const hasFilters = searchTerm || dateFrom || dateTo || statusFilter || severityFilter;
 
-  // Count by severity
   const criticalCount = escalations.filter(e => e.severity === 'critical').length;
   const highCount = escalations.filter(e => e.severity === 'high').length;
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Escalations</h1>
@@ -1100,10 +1281,8 @@ export function EscalationsList() {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="rounded-2xl bg-slate-800/30 border border-slate-700/50 p-4">
         <div className="flex flex-col lg:flex-row gap-4">
-          {/* Search */}
           <div className="flex-1">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
@@ -1117,7 +1296,6 @@ export function EscalationsList() {
             </div>
           </div>
 
-          {/* Severity Filter */}
           <select
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value)}
@@ -1130,7 +1308,6 @@ export function EscalationsList() {
             <option value="low">Low</option>
           </select>
 
-          {/* Status Filter */}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -1143,7 +1320,6 @@ export function EscalationsList() {
             <option value="resolved">Resolved</option>
           </select>
 
-          {/* Date Filters */}
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4 text-slate-500" />
             <input
@@ -1172,7 +1348,6 @@ export function EscalationsList() {
           )}
         </div>
 
-        {/* Results count */}
         <div className="mt-3 pt-3 border-t border-slate-700/50">
           <p className="text-sm text-slate-500">
             Found <span className="text-white font-medium">{totalCount}</span> escalations
@@ -1180,7 +1355,6 @@ export function EscalationsList() {
         </div>
       </div>
 
-      {/* Escalations Grid */}
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {[...Array(6)].map((_, i) => (
@@ -1207,11 +1381,11 @@ export function EscalationsList() {
                 onClick={() => setSelectedEscalation(escalation)}
                 onQuickResolve={(e) => setResolveModalEscalation(e)}
                 onAssign={(e) => setAssignModalEscalation(e)}
+                onSendWhatsApp={(e) => setWhatsappModalEscalation(e)}
               />
             ))}
           </div>
 
-          {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between px-4 py-3 bg-slate-800/30 rounded-xl border border-slate-700/50">
               <p className="text-sm text-slate-500">
@@ -1238,16 +1412,15 @@ export function EscalationsList() {
         </>
       )}
 
-      {/* Detail Modal */}
       {selectedEscalation && (
         <EscalationDetailModal
           escalation={selectedEscalation}
           onClose={() => setSelectedEscalation(null)}
           onStatusUpdate={handleStatusUpdate}
+          onSendWhatsApp={(e) => setWhatsappModalEscalation(e)}
         />
       )}
 
-      {/* Quick Resolve Modal */}
       <QuickResolveModal
         escalation={resolveModalEscalation}
         onClose={() => setResolveModalEscalation(null)}
@@ -1255,13 +1428,19 @@ export function EscalationsList() {
         isLoading={isResolving}
       />
 
-      {/* Assign Modal */}
       <AssignModal
         escalation={assignModalEscalation}
         doctors={doctors}
         onClose={() => setAssignModalEscalation(null)}
         onConfirm={handleAssign}
         isLoading={isAssigning}
+      />
+
+      <WhatsAppMessageModal
+        escalation={whatsappModalEscalation}
+        onClose={() => setWhatsappModalEscalation(null)}
+        onSend={handleSendWhatsApp}
+        isLoading={isSendingWhatsApp}
       />
     </div>
   );
