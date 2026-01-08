@@ -1831,6 +1831,7 @@ export default function ChatPage() {
       const prescriptionData = {
         patient_id: patientId,
         organization_id: orgId,
+        user_id: currentUser?.id,  // ✅ CORRECT
         file_url: uploadResult.fileUrl,
         chief_complaint: question,
         user_question: question,
@@ -1844,15 +1845,22 @@ export default function ChatPage() {
       console.log('📝 Creating prescription with existing patient:', prescriptionData);
 
       const { data: newPrescription, error: prescriptionError } = await supabase
-        .from('prescriptions')
-        .insert(prescriptionData)
-        .select('id')
-        .single();
-
-      if (prescriptionError || !newPrescription) {
-        console.error('Prescription creation error:', prescriptionError);
-        throw new Error('Failed to create prescription record');
-      }
+      .from('prescriptions')
+      .insert(prescriptionData)
+      .select('id')
+      .single();
+    
+    if (prescriptionError || !newPrescription) {
+      console.error('❌ Prescription creation error:', prescriptionError);
+      console.error('📋 Error details:', {
+        message: prescriptionError?.message,
+        details: prescriptionError?.details,
+        hint: prescriptionError?.hint,
+        code: prescriptionError?.code
+      });
+      console.error('📦 Data we tried to insert:', prescriptionData);
+      throw new Error(`Failed to create prescription: ${prescriptionError?.message || 'Unknown error'}`);
+    }
 
       const newPrescriptionId = newPrescription.id;
       console.log('✅ Prescription created:', newPrescriptionId);
