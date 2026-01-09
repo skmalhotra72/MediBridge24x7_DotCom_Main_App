@@ -50,6 +50,25 @@ interface FamilyMember {
 
 type CallState = 'INITIALIZING' | 'CONFIRMING_IDENTITY' | 'SELECTING_PATIENT' | 'LOADING_CONTEXT' | 'CONVERSATION' | 'ONBOARDING_NEW';
 
+// Helper function to safely convert any value to a displayable string
+function safeArrayJoin(value: any, separator: string = ', '): string {
+  if (!value) return 'None recorded';
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value.join(separator) : 'None recorded';
+  }
+  if (typeof value === 'string') {
+    return value || 'None recorded';
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return 'None recorded';
+    }
+  }
+  return String(value) || 'None recorded';
+}
+
 export class TwilioMediaStreamHandler {
   private twilioWs: WebSocket;
   private openaiWs: WebSocket | null = null;
@@ -68,6 +87,10 @@ export class TwilioMediaStreamHandler {
   private callerName: string = '';
   private callerAuthUserId: string | null = null;
   
+  // ========== NEW: Organization & Doctor Context ==========
+  private organizationName: string = 'MediBridge 24/7';
+  private primaryDoctorName: string = '';
+  
   // Call logging
   private voiceCallId: string | null = null;
   private callStartTime: Date = new Date();
@@ -76,6 +99,51 @@ export class TwilioMediaStreamHandler {
   constructor(twilioWs: WebSocket) {
     this.twilioWs = twilioWs;
     console.log('📞 TwilioMediaStreamHandler initialized');
+  }
+
+  // ========== NEW: Helper to get Organization Name ==========
+  // Priority: clinic context > family member org > default
+  private getOrganizationName(): string {
+    // Try clinic context first (most reliable)
+    if (this.patientContext?.clinicContext?.clinic?.name) {
+      return this.patientContext.clinicContext.clinic.name;
+    }
+    // Try from family members
+    if (this.familyMembers.length > 0 && this.familyMembers[0].organization_name) {
+      return this.familyMembers[0].organization_name;
+    }
+    // Try from selected patient's org
+    const selectedMember = this.familyMembers.find(m => m.patient_id === this.selectedPatientId);
+    if (selectedMember?.organization_name) {
+      return selectedMember.organization_name;
+    }
+    // Return stored org name or default
+    return this.organizationName || 'MediBridge 24/7';
+  }
+
+  // ========== NEW: Get Primary Doctor from Prescriptions ==========
+  private getPrimaryDoctorName(): string {
+    if (this.patientContext?.smartContext?.prescriptions?.length > 0) {
+      // Get the most recent prescription's doctor
+      const recentRx = this.patientContext.smartContext.prescriptions[0];
+      if (recentRx.doctor_name) {
+        return recentRx.doctor_name;
+      }
+    }
+    return '';
+  }
+
+  // ========== NEW: Get All Doctor Names from Prescriptions ==========
+  private getDoctorNames(): string[] {
+    const doctors = new Set<string>();
+    if (this.patientContext?.smartContext?.prescriptions) {
+      this.patientContext.smartContext.prescriptions.forEach((rx: any) => {
+        if (rx.doctor_name) {
+          doctors.add(rx.doctor_name);
+        }
+      });
+    }
+    return Array.from(doctors);
   }
 
   public async handleMessage(message: TwilioMessage): Promise<void> {
@@ -126,10 +194,6 @@ export class TwilioMediaStreamHandler {
       if (cleanPhone.length === 10) {
         cleanPhone = '91' + cleanPhone;
       }
-      // If starts with +91, remove the +
-      if (cleanPhone.startsWith('91') && cleanPhone.length === 12) {
-        // Already in correct format
-      }
 
       console.log('🔢 Cleaned phone:', cleanPhone);
 
@@ -150,6 +214,12 @@ export class TwilioMediaStreamHandler {
         this.callerAuthUserId = lookupResult.caller_auth_user_id;
         this.familyMembers = lookupResult.family_members || [];
         
+        // ========== NEW: Set organization name early ==========
+        if (this.familyMembers.length > 0 && this.familyMembers[0].organization_name) {
+          this.organizationName = this.familyMembers[0].organization_name;
+          console.log('🏥 Organization:', this.organizationName);
+        }
+        
         // FIX: Use caller_patient_id (the person who owns this phone) not family_members[0]
         const callerPatientId = lookupResult.caller_patient_id;
         
@@ -159,6 +229,10 @@ export class TwilioMediaStreamHandler {
         if (callerRecord) {
           this.selectedPatientId = callerRecord.patient_id;
           this.selectedOrganizationId = callerRecord.organization_id;
+          // Update org name from caller's record
+          if (callerRecord.organization_name) {
+            this.organizationName = callerRecord.organization_name;
+          }
         }
         
         // Store full context for later
@@ -204,6 +278,7 @@ export class TwilioMediaStreamHandler {
           metadata: {
             original_phone: this.callerPhone,
             patient_name: this.callerName || 'Unknown',
+            organization_name: this.organizationName,
             call_state: this.callState,
             family_count: this.familyMembers.length
           }
@@ -219,6 +294,7 @@ export class TwilioMediaStreamHandler {
       }
 
       console.log('📊 Call State:', this.callState);
+      console.log('🏥 Organization:', this.organizationName);
       await this.connectToOpenAI();
 
     } catch (error) {
@@ -230,25 +306,102 @@ export class TwilioMediaStreamHandler {
     try {
       console.log('📋 Loading context for patient:', patientId, 'org:', organizationId);
       
+      // Try RPC first
       const { data: smartContext, error: smartError } = await supabase.rpc('get_patient_smart_context', {
         p_patient_id: patientId,
         p_query_type: 'prescription'
       });
 
       if (smartError) {
-        console.error('❌ Smart context error:', smartError.message);
-      } else {
-        console.log('📋 Smart context loaded:', {
-          patient: smartContext?.patient?.full_name || 'N/A',
-          prescriptions: smartContext?.prescriptions?.length || 0,
-          prescriptionDetails: smartContext?.prescriptions?.slice(0, 3).map((p: any) => ({
-            doctor: p.doctor_name,
-            diagnosis: p.diagnosis,
-            medicines: p.medicines?.length || 0
-          }))
-        });
+        console.error('❌ Smart context RPC error:', smartError.message);
       }
 
+      // Log what we got
+      console.log('📋 Smart context from RPC:', {
+        patient: smartContext?.patient?.full_name || 'N/A',
+        prescriptions: smartContext?.prescriptions?.length || 0
+      });
+
+      // FALLBACK: If RPC returns 0 prescriptions, fetch directly from database
+      let prescriptionsData = smartContext?.prescriptions || [];
+      
+      if (prescriptionsData.length === 0) {
+        console.log('⚠️ RPC returned 0 prescriptions, fetching directly from database...');
+        
+        // Fetch prescriptions directly
+        const { data: directPrescriptions, error: rxError } = await supabase
+          .from('prescriptions')
+          .select(`
+            id,
+            doctor_name,
+            diagnosis,
+            created_at,
+            prescription_date,
+            clinic_name
+          `)
+          .eq('patient_id', patientId)
+          .order('created_at', { ascending: false })
+          .limit(5);
+
+        if (rxError) {
+          console.error('❌ Direct prescriptions fetch error:', rxError.message);
+        } else if (directPrescriptions && directPrescriptions.length > 0) {
+          console.log(`✅ Found ${directPrescriptions.length} prescriptions directly`);
+          
+          // Fetch medicines for these prescriptions
+          const prescriptionIds = directPrescriptions.map(p => p.id);
+          const { data: medicines, error: medError } = await supabase
+            .from('prescription_items')
+            .select(`
+              prescription_id,
+              medicine_name,
+              dosage,
+              frequency,
+              timing,
+              duration,
+              instructions
+            `)
+            .in('prescription_id', prescriptionIds);
+
+          if (medError) {
+            console.error('❌ Medicines fetch error:', medError.message);
+          }
+
+          // Combine prescriptions with their medicines
+          prescriptionsData = directPrescriptions.map(rx => ({
+            ...rx,
+            medicines: medicines?.filter(m => m.prescription_id === rx.id) || []
+          }));
+
+          console.log(`✅ Loaded ${prescriptionsData.length} prescriptions with ${medicines?.length || 0} total medicines`);
+        }
+      }
+
+      // Fetch patient details if not in smartContext
+      let patientData = smartContext?.patient;
+      if (!patientData) {
+        const { data: directPatient } = await supabase
+          .from('patients')
+          .select('id, full_name, age, gender, blood_group, known_allergies, chronic_conditions, medical_history')
+          .eq('id', patientId)
+          .single();
+        
+        patientData = directPatient;
+      }
+
+      // Log final prescription details
+      console.log('📋 Final context:', {
+        patient: patientData?.full_name || 'N/A',
+        prescriptions: prescriptionsData.length,
+        prescriptionDetails: prescriptionsData.slice(0, 3).map((p: any) => ({
+          doctor: p.doctor_name,
+          diagnosis: p.diagnosis,
+          medicines: p.medicines?.length || 0,
+          medicineNames: p.medicines?.map((m: any) => m.medicine_name).join(', ') || 'N/A'
+        }))
+      });
+
+      // Fetch clinic context
       const { data: clinicContext, error: clinicError } = await supabase.rpc('get_clinic_context', {
         p_organization_id: organizationId
       });
@@ -260,15 +413,28 @@ export class TwilioMediaStreamHandler {
           clinic: clinicContext?.clinic?.name || 'N/A',
           doctors: clinicContext?.doctors?.length || 0
         });
+        
+        // ========== NEW: Update organization name from clinic context ==========
+        if (clinicContext?.clinic?.name) {
+          this.organizationName = clinicContext.clinic.name;
+        }
       }
 
+      // Build final context
       this.patientContext = {
         ...this.patientContext,
-        smartContext,
+        smartContext: {
+          patient: patientData,
+          prescriptions: prescriptionsData
+        },
         clinicContext
       };
 
-      console.log('✅ Full patient context loaded');
+      // ========== NEW: Set primary doctor name ==========
+      this.primaryDoctorName = this.getPrimaryDoctorName();
+      console.log('👨‍⚕️ Primary Doctor:', this.primaryDoctorName || 'N/A');
+
+      console.log('✅ Full patient context loaded with', prescriptionsData.length, 'prescriptions');
     } catch (error) {
       console.error('⚠️ Error loading patient context:', error);
     }
@@ -387,164 +553,302 @@ export class TwilioMediaStreamHandler {
     return this.buildConversationInstructions(callerFirstName);
   }
 
+  // ========== UPDATED: New User Instructions - Clinic Centric ==========
   private buildNewUserInstructions(): string {
-    return `You are Dr. Bridge, a friendly AI health assistant from MediBridge 24/7.
+    const orgName = this.getOrganizationName();
+    
+    return `You are Dr. Bridge, the AI health assistant for ${orgName}.
 
-You are on a VOICE CALL with a NEW USER who is not yet registered in our system.
+You are on a VOICE CALL with a NEW CALLER who is not yet registered.
+
+YOUR ROLE:
+You are ${orgName}'s virtual assistant at the front desk. Think of yourself as a helpful receptionist who:
+- Warmly welcomes new patients
+- Collects their basic information
+- Makes them feel comfortable with ${orgName}
 
 GREETING (70% English, 30% Hindi):
-"Hello! Welcome to MediBridge 24/7. I'm Dr. Bridge, your AI health assistant. Main aapki kaise madad kar sakta hoon? You can talk to me in Hindi, English, or any language you prefer - I understand them all!"
+"Hello! Welcome to ${orgName}. I'm Dr. Bridge, your health assistant here at the clinic. 
+It looks like this is your first time calling us - wonderful to have you!
+Main aapki kaise madad kar sakta hoon? How can I help you today?"
 
-YOUR TASK:
-1. Warmly welcome them
-2. Explain that they're not yet registered
-3. Offer to help them register OR help with general health questions
-4. If they want to register, collect: Full Name, Age, Gender
-5. For general questions, help them but mention registration benefits
+ENGAGEMENT WHILE COLLECTING INFO:
+Keep the conversation warm and natural:
+- "To help you better, may I have your good name please?"
+- "Thank you! And your age please? This helps our doctors provide better care."
+- "Perfect! And just for our records - male, female, or other?"
+- "Wonderful! So I have [Name], [Age] years old, [Gender]. Is that correct?
+   Great! I've registered you with ${orgName}. Ab aap humare family ka hissa hain!"
 
-REGISTRATION FLOW:
-- Ask: "Would you like me to help you register? It only takes a minute and you'll get personalized health support."
-- If yes: "Great! Let me get a few details. What is your full name?"
-- Then: "And your age?"
-- Then: "And your gender - male, female, or other?"
-- Confirm: "Perfect! I have [name], [age] years old, [gender]. Is that correct?"
+IF NEW USER WANTS TO UPLOAD A PRESCRIPTION:
+"I'd be happy to help with your prescription! Please send a photo of it to our WhatsApp number: +91 70421 91854
+After uploading, wait for 5 to 7 minutes and then call me back - main aapko sab kuch explain kar dunga!"
 
 RULES:
-- Be warm and welcoming
+- Always represent ${orgName}, not yourself
+- Be warm, welcoming - first impressions matter!
 - Keep responses SHORT (2-3 sentences for voice)
 - NEVER prescribe medications or diagnose
-- For emergencies: "Please call 108 or go to nearest hospital immediately"
-- Mix English and Hindi naturally`;
+- For emergencies: "Please call 108 or visit ${orgName}'s emergency department immediately"
+- Mix English and Hindi naturally (Hinglish)`;
   }
 
+  // ========== UPDATED: Patient Selection - Clinic Centric ==========
   private buildPatientSelectionInstructions(callerFirstName: string): string {
+    const orgName = this.getOrganizationName();
+    
     // Build family member list for the prompt
     const familyList = this.familyMembers.map((m, i) => {
       const ageGender = [m.age ? `${m.age} years` : null, m.gender].filter(Boolean).join(', ');
       return `${i + 1}. ${m.full_name} (${m.relationship})${ageGender ? ` - ${ageGender}` : ''}`;
     }).join('\n');
 
-    return `You are Dr. Bridge, a friendly AI health assistant from MediBridge 24/7.
+    return `You are Dr. Bridge, the AI health assistant for ${orgName}.
 
-You are on a VOICE CALL. The caller is ${this.callerName} and they have ${this.familyMembers.length} family members registered.
+You are on a VOICE CALL. The caller is ${this.callerName}, a valued patient of ${orgName}, with ${this.familyMembers.length} family members registered.
+
+YOUR ROLE:
+You are ${orgName}'s virtual assistant at the front desk. You know this patient and their family.
+Your job is to:
+1. Warmly welcome them back to ${orgName}
+2. Find out who they're calling about
+3. Pull up the right records while keeping them engaged
 
 GREETING (70% English, 30% Hindi):
-"Hello ${callerFirstName}! Welcome to MediBridge 24/7. I'm Dr. Bridge, your AI health assistant. Aap mujhse Hindi, English ya kisi bhi language mein baat kar sakte hain - I understand them all!
-
-Before we start, please tell me - who is this call regarding? Is it for yourself, or someone else in your family?"
+"Hello ${callerFirstName}! Welcome back to ${orgName}. I'm Dr. Bridge, aapka health assistant.
+Aap kaise hain? It's good to hear from you!
+Yeh call kis ke liye hai - yourself ke liye, ya family mein kisi aur ke liye?"
 
 REGISTERED FAMILY MEMBERS:
 ${familyList}
 
-YOUR TASK:
-1. Greet the caller warmly
-2. Ask WHO this call is for (very important!)
-3. Listen to their response
-4. Use the 'select_patient' function to record their choice
-5. Once selected, I will load that patient's medical records
+ENGAGEMENT WHILE THEY RESPOND:
+If they hesitate or think:
+- "Take your time! I have all your family's records here at ${orgName}."
+- "I can see your whole family is registered with us - ${this.familyMembers.map(m => m.full_name).join(', ')}"
 
-IMPORTANT:
-- You MUST ask who the call is for before providing any medical information
-- Wait for their response before proceeding
-- If they say a name, match it to the family list
-- If unclear, list the options: "${this.familyMembers.map(m => m.full_name).join(', ')}"
+When they select someone:
+- "Perfect! Let me pull up [Name]'s records from ${orgName}... just a moment."
+- "Got it! I'm loading [Name]'s prescription history now."
+
+YOUR TASK:
+1. Greet warmly with their name AND ${orgName}
+2. Ask who the call is for
+3. Listen and use 'select_patient' function
+4. Keep them engaged while loading records
 
 RULES:
-- Keep responses SHORT (2-3 sentences for voice)
-- Be warm and conversational
-- NEVER prescribe medications or diagnose
-- For emergencies: "Please call 108 immediately"`;
+- Always mention ${orgName} - you represent the clinic
+- Be like a friendly receptionist who knows them
+- Keep responses SHORT (2-3 sentences)
+- Wait for their response before proceeding
+- NEVER prescribe or diagnose
+- For emergencies: "Please come directly to ${orgName} or call 108"`;
   }
 
+  // ========== UPDATED: Main Conversation - Full Clinic Context ==========
   private buildConversationInstructions(callerFirstName: string): string {
+    const orgName = this.getOrganizationName();
+    const doctorNames = this.getDoctorNames();
+    const primaryDoctor = this.getPrimaryDoctorName();
+    
     let patientInfo = '';
     let prescriptionInfo = '';
     let clinicInfo = '';
+    let doctorContext = '';
     
     // Get the selected patient's name (might be different from caller)
     const selectedPatient = this.familyMembers.find(m => m.patient_id === this.selectedPatientId);
     const patientName = selectedPatient?.full_name || this.callerName;
     const patientFirstName = patientName?.split(' ')[0] || 'there';
     
-    if (this.patientContext?.smartContext) {
-      const sc = this.patientContext.smartContext;
-      patientInfo = `
+    try {
+      if (this.patientContext?.smartContext) {
+        const sc = this.patientContext.smartContext;
+        
+        // Use safe array join helper for all array fields
+        const allergies = safeArrayJoin(sc.patient?.known_allergies || sc.patient?.medical_history?.allergies);
+        const chronicConditions = safeArrayJoin(sc.patient?.chronic_conditions || sc.patient?.medical_history?.chronic_conditions);
+        
+        patientInfo = `
 PATIENT INFORMATION:
 - Name: ${sc.patient?.full_name || patientName}
 - Age: ${sc.patient?.age || 'Not specified'}
 - Gender: ${sc.patient?.gender || 'Not specified'}
 - Blood Group: ${sc.patient?.blood_group || 'Not specified'}
-- Allergies: ${sc.patient?.known_allergies?.join(', ') || 'None recorded'}
-- Chronic Conditions: ${sc.patient?.chronic_conditions?.join(', ') || 'None recorded'}`;
+- Allergies: ${allergies}
+- Chronic Conditions: ${chronicConditions}`;
 
-      if (sc.prescriptions && sc.prescriptions.length > 0) {
-        prescriptionInfo = `
+        if (sc.prescriptions && sc.prescriptions.length > 0) {
+          prescriptionInfo = `
 
 PRESCRIPTIONS ON FILE: ${sc.prescriptions.length}
-${sc.prescriptions.slice(0, 5).map((rx: any, i: number) => `
+${sc.prescriptions.slice(0, 5).map((rx: any, i: number) => {
+  const medicineList = rx.medicines && rx.medicines.length > 0
+    ? rx.medicines.map((m: any) => `${m.medicine_name || 'Unknown'} (${m.dosage || 'as directed'})`).join(', ')
+    : 'See prescription details';
+  
+  return `
 📋 Prescription ${i + 1}:
-   - Doctor: Dr. ${rx.doctor_name || 'Unknown'}
-   - Date: ${rx.created_at ? new Date(rx.created_at).toLocaleDateString() : 'N/A'}
+   - Doctor: Dr. ${rx.doctor_name || 'Unknown'} at ${orgName}
+   - Date: ${rx.created_at ? new Date(rx.created_at).toLocaleDateString('en-IN') : rx.prescription_date || 'N/A'}
    - Diagnosis: ${rx.diagnosis || 'General consultation'}
-   - Medicines: ${rx.medicines?.map((m: any) => `${m.medicine_name} (${m.dosage || 'as directed'})`).join(', ') || 'See prescription'}
-`).join('')}`;
-      } else {
-        prescriptionInfo = `
+   - Medicines: ${medicineList}`;
+}).join('')}`;
 
-PRESCRIPTIONS: No prescriptions found for this patient.`;
+          // ========== NEW: Build doctor context for conversation ==========
+          if (doctorNames.length > 0) {
+            doctorContext = `
+
+DOCTORS WHO HAVE TREATED THIS PATIENT AT ${orgName.toUpperCase()}:
+${doctorNames.map(d => `- Dr. ${d}`).join('\n')}
+Most Recent: Dr. ${primaryDoctor || doctorNames[0]}
+
+USE THIS TO BUILD RAPPORT:
+- "I see Dr. ${primaryDoctor || doctorNames[0]} prescribed this for you..."
+- "According to Dr. ${primaryDoctor || doctorNames[0]}'s prescription..."
+- "Your doctor at ${orgName} has recommended..."`;
+          }
+        } else {
+          prescriptionInfo = `
+
+PRESCRIPTIONS: No prescriptions found for this patient.
+Offer to help them upload:
+- "I don't see any prescriptions on file yet. Would you like to upload one?"
+- "You can send your prescription photo to our WhatsApp: +91 70421 91854"
+- "If you have a prescription from ${orgName}, I can help explain it once you upload it."`;
+        }
       }
-    }
 
-    if (this.patientContext?.clinicContext) {
-      const cc = this.patientContext.clinicContext;
-      clinicInfo = `
+      if (this.patientContext?.clinicContext) {
+        const cc = this.patientContext.clinicContext;
+        const doctorsList = cc.doctors && cc.doctors.length > 0
+          ? cc.doctors.slice(0, 5).map((d: any) => 
+              `- Dr. ${d.full_name || d.name || 'Unknown'} (${d.specialization || 'General'}) - ₹${d.consultation_fee || 'Contact clinic'}`
+            ).join('\n')
+          : 'Contact clinic for doctor information';
+        
+        clinicInfo = `
 
-CLINIC: ${cc.clinic?.name || 'MediBridge Partner Clinic'}
+CLINIC: ${orgName}
+${cc.clinic?.tagline || 'Your trusted healthcare partner'}
+
 AVAILABLE DOCTORS:
-${cc.doctors?.slice(0, 5).map((d: any) => `- Dr. ${d.full_name} (${d.specialization || 'General'}) - ₹${d.consultation_fee || 'Contact clinic'}`).join('\n') || 'Contact clinic for doctor information'}`;
+${doctorsList}`;
+      }
+    } catch (error) {
+      console.error('⚠️ Error building patient info:', error);
     }
 
     // Determine if caller is calling for self or someone else
     const isCallingForSelf = this.selectedPatientId === this.patientContext?.callerPatientId;
     const relationshipNote = isCallingForSelf 
       ? '' 
-      : `\nNOTE: ${callerFirstName} is calling on behalf of ${patientFirstName}. Address medical info about ${patientFirstName} but speak to ${callerFirstName}.`;
+      : `
+IMPORTANT: ${callerFirstName} is calling on behalf of ${patientFirstName}.
+- Address medical info about ${patientFirstName}
+- But speak to ${callerFirstName}
+- Example: "For ${patientFirstName}, Dr. ${primaryDoctor || 'your doctor'} has prescribed..."`;
 
-    return `You are Dr. Bridge, a friendly AI health assistant from MediBridge 24/7.
+    const prescriptionCount = this.patientContext?.smartContext?.prescriptions?.length || 0;
 
-You are on a VOICE CALL. Keep all responses SHORT and conversational (2-3 sentences max).
+    return `You are Dr. Bridge, the AI health assistant for ${orgName}.
+
+YOUR IDENTITY & ROLE:
+You are ${orgName}'s virtual assistant - like a knowledgeable receptionist who:
+- Knows all the patients and their history
+- Can explain prescriptions and medicines
+- Represents ${orgName} and its doctors
+- Helps patients between their clinic visits
+
+You are NOT a replacement for doctors - you SUPPORT the doctors at ${orgName}.
 ${relationshipNote}
 ${patientInfo}
+${doctorContext}
 ${prescriptionInfo}
 ${clinicInfo}
 
 GREETING (70% English, 30% Hindi):
 "${isCallingForSelf 
-  ? `Great ${patientFirstName}! I have your medical records ready. Aapki ${this.patientContext?.smartContext?.prescriptions?.length || 0} prescriptions hain mere paas. How can I help you today? Feel free to ask about your medicines, dosages, or any health concerns.`
-  : `Okay ${callerFirstName}! I have ${patientFirstName}'s medical records ready. Unki ${this.patientContext?.smartContext?.prescriptions?.length || 0} prescriptions hain mere paas. How can I help you today?`
+  ? `Perfect ${patientFirstName}! I have all your records from ${orgName} ready. ${prescriptionCount > 0 ? `Aapki ${prescriptionCount} prescriptions hain mere paas${primaryDoctor ? `, including the recent one from Dr. ${primaryDoctor}` : ''}.` : ''} How can I help you today?`
+  : `Got it ${callerFirstName}! I have ${patientFirstName}'s records from ${orgName} ready. ${prescriptionCount > 0 ? `Unki ${prescriptionCount} prescriptions hain mere paas${primaryDoctor ? `, including Dr. ${primaryDoctor}'s recent prescription` : ''}.` : ''} How can I help with ${patientFirstName}'s health today?`
 }"
 
+HOW TO REFERENCE DOCTORS & CLINIC:
+ALWAYS attribute information to the doctors and ${orgName}:
+GOOD: "According to Dr. ${primaryDoctor || '[Doctor]'}'s prescription from ${orgName}..."
+GOOD: "Dr. ${primaryDoctor || '[Doctor]'} has prescribed this because..."
+GOOD: "At ${orgName}, we recommend..."
+BAD: "I think you should take..." (NEVER say this)
+BAD: "You should try..." (NEVER say this)
+
+ENGAGEMENT & SMALL TALK:
+WHILE LOOKING UP INFO:
+- "Let me check that for you... I see Dr. ${primaryDoctor || '[Doctor]'} prescribed this on [date]..."
+- "Just pulling up those details... Ah yes, here it is..."
+
+BUILDING RAPPORT:
+- "How have you been feeling since your last visit to ${orgName}?"
+- "Are you following Dr. ${primaryDoctor || '[Doctor]'}'s advice?"
+- "Is the medicine helping? Any side effects?"
+
 WHAT YOU CAN HELP WITH:
-- Explain medicines and their dosages
-- Clarify prescription instructions (when to take, with food/empty stomach)
-- Explain what conditions medicines treat
-- Help book follow-up appointments
-- Answer general health questions
-- Provide clinic and doctor information
+✅ Explain medicines prescribed by ${orgName}'s doctors
+✅ Clarify dosage, timing, and instructions
+✅ Explain why a medicine was prescribed
+✅ Describe potential side effects
+✅ Help book appointments with ${orgName}'s doctors
+✅ Guide patients to upload new prescriptions/reports (via WhatsApp or website)
 
-RULES:
-- Be warm, empathetic, speak clearly
-- Reference patient's actual prescriptions and medicines
-- NEVER prescribe NEW medications
-- NEVER diagnose NEW conditions
-- For emergencies: "Please call 108 or visit the nearest hospital immediately"
-- Keep responses SHORT for voice conversation
-- Mix Hindi and English naturally (Hinglish)
-- If asked about a medicine not in records, say "I don't see that in your current prescriptions, but I can help with general information"
+❌ NEVER prescribe new medications
+❌ NEVER diagnose new conditions  
+❌ NEVER change doctor's instructions
 
-LANGUAGE:
-- You can understand and respond in Hindi, English, Hinglish, or any other language the patient speaks
-- Match the patient's language preference`;
+EMERGENCY HANDLING:
+If patient mentions chest pain, breathing difficulty, severe symptoms:
+"This sounds like an emergency. Please call 108 right away or go to ${orgName}'s emergency department immediately. 
+Yeh emergency hai - please abhi 108 call karein ya hospital jaayein."
+
+DOCUMENT UPLOAD GUIDANCE:
+If patient wants to share/upload a new prescription, lab report, or any document:
+
+TRIGGER PHRASES (patient might say):
+- "I want to upload/share a prescription"
+- "I have a new report to share"
+- "Mujhe prescription bhejni hai"
+- "How do I send my lab report?"
+- "I got a new prescription from doctor"
+- "Can I share my test results?"
+
+YOUR RESPONSE:
+"I'd love to help you with your new prescription/report! Since this is a voice call, I can't receive files directly. But don't worry, it's very easy:
+
+Option 1 - WhatsApp (Fastest):
+Send your prescription or report photo to our WhatsApp number: +91 70421 91854
+Bas photo click karke WhatsApp pe bhej dijiye.
+
+Option 2 - Website:
+You can also upload it on ${orgName}'s patient portal website.
+
+After uploading, please wait for 5 to 7 minutes for our system to process it, and then call me back. Main aapki nayi prescription ke baare mein detail mein baat kar sakta hoon!
+
+Would you like me to repeat the WhatsApp number?"
+
+IF THEY ASK TO REPEAT:
+"Sure! The WhatsApp number is: +91 7-0-4-2-1-9-1-8-5-4. That's +91 70421 91854.
+Photo bhejne ke baad 5-7 minutes wait karein aur phir mujhe call karein!"
+
+CALL WRAP-UP:
+- "Is there anything else I can help you with today?"
+- "Remember, ${orgName} is always here for you. Take care!"
+- "Dr. ${primaryDoctor || 'Your doctor'} and the team at ${orgName} wish you good health!"
+
+VOICE CALL GUIDELINES:
+1. Keep responses SHORT (2-3 sentences)
+2. Be warm and empathetic
+3. Always reference ${orgName} and its doctors
+4. Mix Hindi and English naturally (Hinglish)
+5. Match the patient's language preference`;
   }
 
   private triggerGreeting(): void {
@@ -559,7 +863,7 @@ LANGUAGE:
         role: 'user',
         content: [{
           type: 'input_text',
-          text: 'The call has just connected. Please greet the caller appropriately based on your instructions.'
+          text: 'The call has just connected. Please greet the caller appropriately based on your instructions. Remember to mention the clinic name and be warm and welcoming.'
         }]
       }
     }));
@@ -653,10 +957,13 @@ LANGUAGE:
         let selectedMember: FamilyMember | undefined;
         
         // Check if user is selecting themselves (for me, myself, mera, khud, self)
-        const selfIndicators = ['for me', 'myself', 'mera', 'mere liye', 'khud', 'self', 'apne liye', 'main'];
+        const selfIndicators = ['for me', 'myself', 'mera', 'mere liye', 'khud', 'self', 'apne liye', 'main', 'mujhe', 'apna'];
         const callerFirstName = this.callerName?.toLowerCase().split(' ')[0] || '';
+        const callerFullNameLower = this.callerName?.toLowerCase() || '';
+        
         const isSelfSelection = selfIndicators.some(indicator => patientName.includes(indicator)) ||
-                               patientName.includes(callerFirstName);
+                               patientName.includes(callerFirstName) ||
+                               patientName.includes(callerFullNameLower);
         
         if (isSelfSelection && this.patientContext?.callerPatientId) {
           // User is selecting themselves - use the caller's patient record directly
@@ -665,12 +972,13 @@ LANGUAGE:
           
           // If not found in family list (edge case), create from context
           if (!selectedMember) {
+            const callerOrg = this.familyMembers.length > 0 ? this.familyMembers[0].organization_id : '';
             selectedMember = {
               patient_id: this.patientContext.callerPatientId,
               full_name: this.callerName,
               relationship: 'self',
-              organization_id: this.familyMembers.find(m => m.patient_id === this.patientContext.callerPatientId)?.organization_id || '',
-              organization_name: '',
+              organization_id: callerOrg,
+              organization_name: this.organizationName,
               age: null,
               gender: null
             };
@@ -691,13 +999,18 @@ LANGUAGE:
           this.selectedPatientId = selectedMember.patient_id;
           this.selectedOrganizationId = selectedMember.organization_id;
           
+          // ========== NEW: Update org name if available ==========
+          if (selectedMember.organization_name) {
+            this.organizationName = selectedMember.organization_name;
+          }
+          
           // Load the selected patient's context
           await this.loadPatientContext(selectedMember.patient_id, selectedMember.organization_id);
           
           // Update call state
           this.callState = 'CONVERSATION';
           
-          // Update voice call record
+          // Update voice call record with org name and doctor
           if (this.voiceCallId) {
             await supabase
               .from('voice_calls')
@@ -707,16 +1020,29 @@ LANGUAGE:
                 metadata: {
                   original_phone: this.callerPhone,
                   patient_name: selectedMember.full_name,
+                  organization_name: this.organizationName,
                   selected_by: this.callerName,
-                  call_state: this.callState
+                  call_state: this.callState,
+                  primary_doctor: this.primaryDoctorName
                 }
               })
               .eq('id', this.voiceCallId);
           }
 
-          // Update OpenAI session with new instructions
-          const newInstructions = this.buildConversationInstructions(this.callerName.split(' ')[0]);
+          // Build new instructions with loaded context
+          let newInstructions: string;
+          try {
+            newInstructions = this.buildConversationInstructions(this.callerName.split(' ')[0]);
+          } catch (instructionError) {
+            console.error('⚠️ Error building instructions, using fallback:', instructionError);
+            const orgName = this.getOrganizationName();
+            newInstructions = `You are Dr. Bridge, the AI health assistant for ${orgName}. 
+              You are now helping ${selectedMember.full_name}. 
+              I have ${this.patientContext?.smartContext?.prescriptions?.length || 0} prescriptions loaded. 
+              Be helpful, always mention ${orgName}, and answer questions about their medicines and health.`;
+          }
           
+          // Update OpenAI session with new instructions
           this.openaiWs?.send(JSON.stringify({
             type: 'session.update',
             session: {
@@ -725,7 +1051,11 @@ LANGUAGE:
             }
           }));
 
-          // Send function result back
+          // ========== NEW: Send function result with engagement message ==========
+          const orgName = this.getOrganizationName();
+          const prescriptionCount = this.patientContext?.smartContext?.prescriptions?.length || 0;
+          const primaryDoc = this.getPrimaryDoctorName();
+          
           this.openaiWs?.send(JSON.stringify({
             type: 'conversation.item.create',
             item: {
@@ -734,7 +1064,10 @@ LANGUAGE:
               output: JSON.stringify({
                 success: true,
                 patient_name: selectedMember.full_name,
-                prescriptions_count: this.patientContext?.smartContext?.prescriptions?.length || 0
+                organization_name: orgName,
+                prescriptions_count: prescriptionCount,
+                primary_doctor: primaryDoc,
+                message: `Records loaded for ${selectedMember.full_name} from ${orgName}. Found ${prescriptionCount} prescriptions${primaryDoc ? `, most recent from Dr. ${primaryDoc}` : ''}.`
               })
             }
           }));
@@ -745,6 +1078,7 @@ LANGUAGE:
         } else {
           console.log('⚠️ Could not find matching patient');
           
+          const orgName = this.getOrganizationName();
           this.openaiWs?.send(JSON.stringify({
             type: 'conversation.item.create',
             item: {
@@ -753,7 +1087,8 @@ LANGUAGE:
               output: JSON.stringify({
                 success: false,
                 error: 'Could not find matching patient',
-                available_patients: this.familyMembers.map(m => m.full_name)
+                available_patients: this.familyMembers.map(m => m.full_name),
+                message: `I couldn't find that name. The family members registered with ${orgName} are: ${this.familyMembers.map(m => m.full_name).join(', ')}. Which one would you like help with?`
               })
             }
           }));
@@ -762,6 +1097,22 @@ LANGUAGE:
         }
       } catch (error) {
         console.error('❌ Error handling function call:', error);
+        
+        // Send error response to OpenAI so conversation can continue
+        this.openaiWs?.send(JSON.stringify({
+          type: 'conversation.item.create',
+          item: {
+            type: 'function_call_output',
+            call_id: message.call_id,
+            output: JSON.stringify({
+              success: false,
+              error: 'An error occurred while processing your selection. Please try again.',
+              message: 'I had a small technical hiccup. Could you please tell me again who this call is for?'
+            })
+          }
+        }));
+
+        this.openaiWs?.send(JSON.stringify({ type: 'response.create' }));
       }
     }
   }
@@ -783,7 +1134,9 @@ LANGUAGE:
           metadata: {
             original_phone: this.callerPhone,
             patient_name: this.patientContext?.smartContext?.patient?.full_name || this.callerName || 'Unknown',
+            organization_name: this.organizationName,
             caller_name: this.callerName,
+            primary_doctor: this.primaryDoctorName,
             transcript_count: this.transcript.length,
             final_state: this.callState,
             call_source: this.callSource
@@ -795,6 +1148,8 @@ LANGUAGE:
         console.error('❌ Error updating voice call record:', error.message);
       } else {
         console.log(`✅ Voice call completed: ${durationSeconds}s, ${this.transcript.length} messages`);
+        console.log(`🏥 Organization: ${this.organizationName}`);
+        console.log(`👨‍⚕️ Primary Doctor: ${this.primaryDoctorName || 'N/A'}`);
       }
     } catch (error) {
       console.error('❌ Error ending call:', error);

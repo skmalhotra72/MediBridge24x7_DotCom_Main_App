@@ -22,7 +22,7 @@ app.get('/', (req, res) => {
   res.json({
     status: 'active',
     service: 'MediBridge Voice Server',
-    version: '1.1.0',
+    version: '1.2.0',
     endpoints: {
       phone: '/media-stream',
       whatsapp: '/whatsapp-voice'
@@ -51,7 +51,7 @@ app.post('/media-stream', (req, res) => {
   
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Aditi" language="hi-IN">Namaste! Dr. Bridge se connect ho rahe hain. Kripya pratiksha karein.</Say>
+  <Say voice="Polly.Aditi" language="en-IN">Thank you for calling MediBridge. Dr. Bridge aapke saath abhi connect ho rahe hain.</Say>
   <Connect>
     <Stream url="wss://medibridge-voice-server-172718285538.asia-south1.run.app/media-stream">
       <Parameter name="callerPhone" value="${callerPhone}" />
@@ -84,9 +84,10 @@ app.post('/whatsapp-voice', (req, res) => {
     rawFrom: rawFrom
   });
   
+  // ========== UPDATED: Same message as phone calls ==========
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Aditi" language="hi-IN">Namaste! Dr. Bridge se connect ho rahe hain. Kripya pratiksha karein.</Say>
+  <Say voice="Polly.Aditi" language="en-IN">Thank you for calling MediBridge. Dr. Bridge aapke saath abhi connect ho rahe hain.</Say>
   <Connect>
     <Stream url="wss://medibridge-voice-server-172718285538.asia-south1.run.app/media-stream">
       <Parameter name="callerPhone" value="${callerPhone}" />
