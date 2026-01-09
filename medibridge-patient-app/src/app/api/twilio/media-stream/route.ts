@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
         to: to,
         callSid: callSid
       }
-    });
+    } as any);
 
     const twiml = response.toString();
     console.log('📝 TwiML Response:', twiml);
