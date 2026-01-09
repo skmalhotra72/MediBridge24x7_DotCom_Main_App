@@ -1539,15 +1539,111 @@ export default function ChatPage() {
       try {
         setLoading(true);
         
-        // Step 1: Get current user
+        // Step 1: Check for Supabase Auth OR localStorage OTP session
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          console.log('❌ No authenticated user, redirecting to login');
-          router.push(`/${org}/login`);
+        
+        const otpSessionStr = typeof window !== 'undefined' 
+          ? localStorage.getItem('medibridge_patient') 
+          : null;
+        
+        const otpSession = otpSessionStr ? JSON.parse(otpSessionStr) : null;
+
+        // If neither auth method exists, redirect to login
+        if (!user && !otpSession) {
+          console.log('No authenticated user, redirecting to auth');
+          router.push(`/${org}/auth`);
           return;
         }
+
+        // ============================================
+        // HANDLE OTP LOGIN (WhatsApp) - Use patient from session
+        // ============================================
+        if (!user && otpSession) {
+          console.log('✅ OTP Session found:', otpSession.patient_name || otpSession.phone_e164);
+          
+          // Get organization first
+          let currentOrgId = otpSession.organization_id;
+          let currentOrgName = '';
+          
+          if (!currentOrgId) {
+            // Lookup organization by subdomain
+            const { data: orgData } = await supabase
+              .from('organizations')
+              .select('id, name, subdomain')
+              .eq('subdomain', org)
+              .maybeSingle();
+            
+            if (orgData) {
+              currentOrgId = orgData.id;
+              currentOrgName = orgData.name || '';
+            }
+          } else {
+            // Get org name from ID
+            const { data: orgData } = await supabase
+              .from('organizations')
+              .select('name')
+              .eq('id', currentOrgId)
+              .maybeSingle();
+            currentOrgName = orgData?.name || '';
+          }
+          
+          if (!currentOrgId) {
+            console.error('❌ Organization not found');
+            setErrorType('org_not_found');
+            setShowError(true);
+            setLoading(false);
+            return;
+          }
+          
+          setOrgId(currentOrgId);
+          setOrgName(currentOrgName || org.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
+          
+          // Load patient from OTP session
+          if (otpSession.patient_id) {
+            const { data: patientFromSession, error: patientError } = await supabase
+              .from('patients')
+              .select('id, full_name, email, phone, organization_id, auth_user_id')
+              .eq('id', otpSession.patient_id)
+              .single();
+            
+            if (patientFromSession && !patientError) {
+              console.log('✅ Patient loaded from OTP session:', patientFromSession.full_name);
+              setPatientId(patientFromSession.id);
+              setPatientData(patientFromSession as PatientData);
+              setCurrentUser(null); // No Supabase user for OTP login
+              
+              // Load prescription or show welcome
+              if (prescriptionId) {
+                await loadPrescription(prescriptionId);
+              } else {
+                setMessages([{
+                  id: 'welcome',
+                  role: 'assistant',
+                  content: `Hello ${patientFromSession.full_name}! I'm Dr. Bridge, your AI healthcare assistant. You can upload a prescription or lab report, and I'll help you understand it. What would you like to do?`,
+                  timestamp: new Date(),
+                  type: 'welcome'
+                }]);
+                setSuggestedQuestions(defaultQuickQuestions);
+              }
+              
+              setLoading(false);
+              return; // Exit early - OTP flow complete
+            }
+          }
+          
+          // If we get here, OTP session exists but patient not found
+          console.log('⚠️ OTP session exists but patient not found');
+          setErrorType('no_patient');
+          setShowError(true);
+          setLoading(false);
+          return;
+        }
+
+        // ============================================
+        // HANDLE SUPABASE AUTH LOGIN (Email/Password)
+        // ============================================
         setCurrentUser(user);
-        console.log('✅ User authenticated:', user.id);
+        console.log('✅ User authenticated via Supabase:', user!.id);
 
         // Step 2: Get organization
         let currentOrgId: string | null = null;
@@ -1605,7 +1701,7 @@ export default function ChatPage() {
         console.log('✅ Organization loaded:', currentOrgId, currentOrgName);
 
         // Step 3: Find existing patient (NO CREATION!)
-        const existingPatient = await fetchExistingPatient(user.id, currentOrgId);
+        const existingPatient = await fetchExistingPatient(user!.id, currentOrgId);
         
         if (existingPatient) {
           setPatientId(existingPatient.id);

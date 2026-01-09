@@ -639,12 +639,46 @@ export default function DashboardPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        // Get organization with clinic_profiles for theme
-        const { data: orgData } = await supabase
+// Get organization with clinic_profiles for theme
+        // Try subdomain first, then slug, then case-insensitive
+        let orgData = null;
+        
+        // Try subdomain first
+        const { data: orgBySubdomain } = await supabase
           .from('organizations')
           .select('id, name')
-          .eq('slug', org)
-          .single();
+          .eq('subdomain', org)
+          .maybeSingle();
+        
+        if (orgBySubdomain) {
+          orgData = orgBySubdomain;
+        } else {
+          // Try slug
+          const { data: orgBySlug } = await supabase
+            .from('organizations')
+            .select('id, name')
+            .eq('slug', org)
+            .maybeSingle();
+          
+          if (orgBySlug) {
+            orgData = orgBySlug;
+          } else {
+            // Try case-insensitive subdomain
+            const { data: orgByIlike } = await supabase
+              .from('organizations')
+              .select('id, name')
+              .ilike('subdomain', org)
+              .maybeSingle();
+            
+            orgData = orgByIlike;
+          }
+        }
+        
+        if (!orgData) {
+          console.error('❌ Organization not found:', org);
+          router.push('/');
+          return;
+        }
         
         if (orgData) {
           setOrgName(orgData.name);
