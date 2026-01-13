@@ -1043,15 +1043,15 @@ export default function DashboardPage() {
       {/* Header */}
       <header className="bg-slate-900/80 backdrop-blur-sm border-b border-slate-700 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 bg-gradient-to-br ${theme.primary.gradient} rounded-xl flex items-center justify-center`}>
-              <span className="text-white font-bold text-lg">M</span>
-            </div>
-            <div>
-              <h1 className="text-white font-bold">MediBridge</h1>
-              <p className="text-slate-400 text-xs">{orgName}</p>
-            </div>
-          </div>
+        <div className="flex items-center gap-3">
+  <div className={`w-10 h-10 bg-gradient-to-br ${theme.primary.gradient} rounded-xl flex items-center justify-center`}>
+    <span className="text-white font-bold text-lg">{orgName ? orgName.charAt(0).toUpperCase() : 'C'}</span>
+  </div>
+  <div>
+    <h1 className="text-white font-bold">{orgName || 'City General Hospital'}</h1>
+    <p className={`${theme.primary.text} text-xs`}>Powered by MediBridge</p>
+  </div>
+</div>
           
           <nav className="flex items-center gap-4">
             {/* Selected Patient Badge */}
