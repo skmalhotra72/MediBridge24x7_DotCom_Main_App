@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { OPENAI_REALTIME } from '@/lib/constants/openai-realtime';
 import {
   Phone,
   PhoneOff,
@@ -414,12 +415,9 @@ addLog('🚀 Starting voice call...');
         }
       });
 
-      // Send SDP to OpenAI
+      // Send SDP to OpenAI (GA endpoint)
       addLog('Step 10: Connecting to OpenAI Realtime...');
-      const baseUrl = 'https://api.openai.com/v1/realtime';
-      const model = 'gpt-4o-realtime-preview-2024-12-17';
-      
-      const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
+      const sdpResponse = await fetch(`${OPENAI_REALTIME.WEBRTC_SDP_URL}?model=${OPENAI_REALTIME.MODEL}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -479,14 +477,16 @@ addLog('🚀 Starting voice call...');
           addLog(`Content: ${event.part?.type}`);
           break;
 
-        case 'response.audio.delta':
-          setSpeakerState('ai_speaking');
-          break;
+          case 'response.audio.delta':
+            case 'response.output_audio.delta':
+              setSpeakerState('ai_speaking');
+              break;
           
-          case 'response.audio.done':
-            setSpeakerState('idle');
-            setCallStats(prev => ({ ...prev, aiMessages: prev.aiMessages + 1 }));
-            addLog('🔊 AI audio complete');
+              case 'response.audio.done':
+                case 'response.output_audio.done':
+                  setSpeakerState('idle');
+                  setCallStats(prev => ({ ...prev, aiMessages: prev.aiMessages + 1 }));
+                  addLog('🔊 AI audio complete');
             
             // Auto-unmute after first greeting completes
             if (!greetingCompleteRef.current) {
@@ -505,18 +505,20 @@ addLog('🚀 Starting voice call...');
             }
             break;
 
-        case 'response.audio_transcript.delta':
-          setCurrentAIText(prev => prev + (event.delta || ''));
-          break;
-          
-        case 'response.audio_transcript.done':
-          if (event.transcript) {
-            setTranscript(prev => [...prev, {
-              speaker: 'dr_bridge',
-              content: event.transcript,
-              timestamp: new Date()
-            }]);
-            setCurrentAIText('');
+            case 'response.audio_transcript.delta':
+              case 'response.output_audio_transcript.delta':
+                setCurrentAIText(prev => prev + (event.delta || ''));
+                break;
+      
+              case 'response.audio_transcript.done':
+              case 'response.output_audio_transcript.done':
+                if (event.transcript) {
+                  setTranscript(prev => [...prev, {
+                    speaker: 'dr_bridge',
+                    content: event.transcript,
+                    timestamp: new Date()
+                  }]);
+                  setCurrentAIText('');
             addLog(`🤖 AI: "${event.transcript.substring(0, 60)}..."`);
           }
           break;

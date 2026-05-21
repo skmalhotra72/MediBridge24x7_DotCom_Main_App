@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { OPENAI_REALTIME } from '../config/openai-realtime';
 import { createClient } from '@supabase/supabase-js';
 
 // Initialize Supabase
@@ -87,7 +88,7 @@ export class TwilioMediaStreamHandler {
   private callerName: string = '';
   private callerAuthUserId: string | null = null;
   
-  // ========== NEW: Organization & Doctor Context ==========
+  // ========== Organization & Doctor Context ==========
   private organizationName: string = 'MediBridge 24/7';
   private primaryDoctorName: string = '';
   
@@ -101,7 +102,7 @@ export class TwilioMediaStreamHandler {
     console.log('📞 TwilioMediaStreamHandler initialized');
   }
 
-  // ========== NEW: Helper to get Organization Name ==========
+  // ========== Helper to get Organization Name ==========
   // Priority: clinic context > family member org > default
   private getOrganizationName(): string {
     // Try clinic context first (most reliable)
@@ -121,7 +122,7 @@ export class TwilioMediaStreamHandler {
     return this.organizationName || 'MediBridge 24/7';
   }
 
-  // ========== NEW: Get Primary Doctor from Prescriptions ==========
+  // ========== Get Primary Doctor from Prescriptions ==========
   private getPrimaryDoctorName(): string {
     if (this.patientContext?.smartContext?.prescriptions?.length > 0) {
       // Get the most recent prescription's doctor
@@ -133,7 +134,7 @@ export class TwilioMediaStreamHandler {
     return '';
   }
 
-  // ========== NEW: Get All Doctor Names from Prescriptions ==========
+  // ========== Get All Doctor Names from Prescriptions ==========
   private getDoctorNames(): string[] {
     const doctors = new Set<string>();
     if (this.patientContext?.smartContext?.prescriptions) {
@@ -144,6 +145,144 @@ export class TwilioMediaStreamHandler {
       });
     }
     return Array.from(doctors);
+  }
+
+  // ========== Get Clinic URL for WhatsApp Summary ==========
+  private getClinicUrl(): string {
+    if (this.patientContext?.clinicContext?.clinic?.subdomain) {
+      return `https://${this.patientContext.clinicContext.clinic.subdomain}.medibridge24x7.com`;
+    }
+    if (this.patientContext?.clinicContext?.clinic?.slug) {
+      return `https://patients.medibridge24x7.com/clinic/${this.patientContext.clinicContext.clinic.slug}`;
+    }
+    return 'https://patients.medibridge24x7.com';
+  }
+
+  // ========== Calculate Call Duration ==========
+  private getCallDuration(): string {
+    const now = new Date();
+    const durationSeconds = Math.round((now.getTime() - this.callStartTime.getTime()) / 1000);
+    const minutes = Math.floor(durationSeconds / 60);
+    const seconds = durationSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }
+
+  // ========== Generate Conversation Summary for WhatsApp ==========
+  private generateConversationSummary(): string {
+    const points: string[] = [];
+    
+    // Get patient info
+    const patientName = this.patientContext?.smartContext?.patient?.full_name || 
+                        this.familyMembers.find(m => m.patient_id === this.selectedPatientId)?.full_name ||
+                        this.callerName;
+    
+    if (patientName) {
+      points.push(`Patient: ${patientName}`);
+    }
+    
+    if (this.primaryDoctorName) {
+      points.push(`Discussed prescriptions from Dr. ${this.primaryDoctorName}`);
+    }
+    
+    const prescriptionCount = this.patientContext?.smartContext?.prescriptions?.length || 0;
+    if (prescriptionCount > 0) {
+      points.push(`Reviewed ${prescriptionCount} prescription(s)`);
+    }
+    
+    // Add a summary of key topics from transcript (last few AI responses)
+    const aiResponses = this.transcript.filter(t => t.role === 'ai').slice(-3);
+    if (aiResponses.length > 0) {
+      // Extract key topics mentioned
+      const topicsDiscussed: string[] = [];
+      aiResponses.forEach(response => {
+        const text = response.text.toLowerCase();
+        if (text.includes('medicine') || text.includes('tablet') || text.includes('dawai')) {
+          topicsDiscussed.push('Medicines explained');
+        }
+        if (text.includes('dosage') || text.includes('dose') || text.includes('kitni')) {
+          topicsDiscussed.push('Dosage instructions');
+        }
+        if (text.includes('side effect') || text.includes('reaction')) {
+          topicsDiscussed.push('Side effects discussed');
+        }
+        if (text.includes('diet') || text.includes('food') || text.includes('khana')) {
+          topicsDiscussed.push('Diet advice');
+        }
+      });
+      
+      // Add unique topics
+      const uniqueTopics = [...new Set(topicsDiscussed)];
+      if (uniqueTopics.length > 0) {
+        points.push(`Topics: ${uniqueTopics.join(', ')}`);
+      }
+    }
+    
+    return points.length > 0 ? '• ' + points.join('\n• ') : 'General health consultation';
+  }
+
+  // ========== NEW: Send Post-Call WhatsApp Summary ==========
+  private async sendPostCallWhatsAppSummary(): Promise<void> {
+    try {
+      // Only send if we have a valid phone number
+      if (!this.callerPhone) {
+        console.log('⚠️ No caller phone available for WhatsApp summary');
+        return;
+      }
+
+      // Clean phone number
+      let cleanPhone = this.callerPhone.replace(/[^\d]/g, '');
+      if (cleanPhone.startsWith('1') && cleanPhone.length === 11) {
+        cleanPhone = cleanPhone.substring(1);
+      }
+      if (cleanPhone.length === 10) {
+        cleanPhone = '91' + cleanPhone;
+      }
+
+      const webhookUrl = 'https://n8n.nhcare.in/webhook/medibridge-post-call-summary';
+      
+      const patientName = this.patientContext?.smartContext?.patient?.full_name || 
+                          this.familyMembers.find(m => m.patient_id === this.selectedPatientId)?.full_name ||
+                          this.callerName || 'Valued Patient';
+
+      const payload = {
+        phone_number: cleanPhone,
+        organization_name: this.organizationName,
+        organization_id: this.selectedOrganizationId,
+        patient_name: patientName,
+        caller_name: this.callerName,
+        conversation_summary: this.generateConversationSummary(),
+        clinic_url: this.getClinicUrl(),
+        whatsapp_number: '+91 70421 91854',
+        call_duration: this.getCallDuration(),
+        primary_doctor: this.primaryDoctorName,
+        prescriptions_count: this.patientContext?.smartContext?.prescriptions?.length || 0,
+        call_sid: this.callSid,
+        voice_call_id: this.voiceCallId,
+        timestamp: new Date().toISOString()
+      };
+
+      console.log('📱 Sending post-call WhatsApp summary to:', cleanPhone);
+      console.log('📋 Summary payload:', JSON.stringify(payload, null, 2));
+
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Source': 'medibridge-voice-server'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        console.log('✅ Post-call WhatsApp summary sent successfully');
+      } else {
+        const errorText = await response.text();
+        console.error('❌ Failed to send post-call summary:', response.status, errorText);
+      }
+    } catch (error) {
+      console.error('❌ Error sending post-call WhatsApp summary:', error);
+      // Don't throw - this is a non-critical feature
+    }
   }
 
   public async handleMessage(message: TwilioMessage): Promise<void> {
@@ -214,7 +353,7 @@ export class TwilioMediaStreamHandler {
         this.callerAuthUserId = lookupResult.caller_auth_user_id;
         this.familyMembers = lookupResult.family_members || [];
         
-        // ========== NEW: Set organization name early ==========
+        // Set organization name early
         if (this.familyMembers.length > 0 && this.familyMembers[0].organization_name) {
           this.organizationName = this.familyMembers[0].organization_name;
           console.log('🏥 Organization:', this.organizationName);
@@ -414,7 +553,7 @@ export class TwilioMediaStreamHandler {
           doctors: clinicContext?.doctors?.length || 0
         });
         
-        // ========== NEW: Update organization name from clinic context ==========
+        // Update organization name from clinic context
         if (clinicContext?.clinic?.name) {
           this.organizationName = clinicContext.clinic.name;
         }
@@ -430,7 +569,7 @@ export class TwilioMediaStreamHandler {
         clinicContext
       };
 
-      // ========== NEW: Set primary doctor name ==========
+      // Set primary doctor name
       this.primaryDoctorName = this.getPrimaryDoctorName();
       console.log('👨‍⚕️ Primary Doctor:', this.primaryDoctorName || 'N/A');
 
@@ -451,12 +590,11 @@ export class TwilioMediaStreamHandler {
 
       const systemInstructions = this.buildSystemInstructions();
 
-      const url = 'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17';
-      
+      const url = OPENAI_REALTIME.getWebSocketUrl();
+
       this.openaiWs = new WebSocket(url, {
         headers: {
-          'Authorization': `Bearer ${openaiApiKey}`,
-          'OpenAI-Beta': 'realtime=v1'
+          'Authorization': `Bearer ${openaiApiKey}`
         }
       });
 
@@ -464,23 +602,24 @@ export class TwilioMediaStreamHandler {
         console.log('✅ Connected to OpenAI Realtime');
         this.isConnected = true;
 
-        // Configure session with tools for patient selection
+        // Configure session with tools for patient selection (GA shape)
         const sessionConfig: any = {
           type: 'session.update',
           session: {
-            modalities: ['text', 'audio'],
-            voice: 'alloy',
+            type: 'realtime',
+            model: OPENAI_REALTIME.MODEL,
+            output_modalities: OPENAI_REALTIME.OUTPUT_MODALITIES,
             instructions: systemInstructions,
-            input_audio_format: 'g711_ulaw',
-            output_audio_format: 'g711_ulaw',
-            input_audio_transcription: {
-              model: 'whisper-1'
-            },
-            turn_detection: {
-              type: 'server_vad',
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 800
+            audio: {
+              input: {
+                format: OPENAI_REALTIME.TWILIO_AUDIO_FORMAT,
+                transcription: { model: OPENAI_REALTIME.TRANSCRIPTION_MODEL },
+                turn_detection: OPENAI_REALTIME.TURN_DETECTION
+              },
+              output: {
+                format: OPENAI_REALTIME.TWILIO_AUDIO_FORMAT,
+                voice: OPENAI_REALTIME.VOICE
+              }
             }
           }
         };
@@ -553,11 +692,17 @@ export class TwilioMediaStreamHandler {
     return this.buildConversationInstructions(callerFirstName);
   }
 
-  // ========== UPDATED: New User Instructions - Clinic Centric ==========
+  // ========== New User Instructions - Clinic Centric ==========
   private buildNewUserInstructions(): string {
     const orgName = this.getOrganizationName();
     
     return `You are Dr. Bridge, the AI health assistant for ${orgName}.
+
+YOUR IDENTITY & GENDER:
+- You are FEMALE - a warm, caring, professional Indian female assistant
+- ALWAYS use feminine Hindi forms: "sakti hoon", "karti hoon", "hoon main", "mujhe pata hai"
+- NEVER use male Hindi forms: "sakta", "karta", "hoon main" with male conjugation
+- Think of yourself as a knowledgeable, friendly female clinic receptionist
 
 You are on a VOICE CALL with a NEW CALLER who is not yet registered.
 
@@ -570,7 +715,7 @@ You are ${orgName}'s virtual assistant at the front desk. Think of yourself as a
 GREETING (70% English, 30% Hindi):
 "Hello! Welcome to ${orgName}. I'm Dr. Bridge, your health assistant here at the clinic. 
 It looks like this is your first time calling us - wonderful to have you!
-Main aapki kaise madad kar sakta hoon? How can I help you today?"
+Main aapki kaise madad kar sakti hoon? How can I help you today?"
 
 ENGAGEMENT WHILE COLLECTING INFO:
 Keep the conversation warm and natural:
@@ -580,9 +725,16 @@ Keep the conversation warm and natural:
 - "Wonderful! So I have [Name], [Age] years old, [Gender]. Is that correct?
    Great! I've registered you with ${orgName}. Ab aap humare family ka hissa hain!"
 
+🚫 CRITICAL LIMITATIONS - WHAT YOU CANNOT DO:
+❌ CANNOT send WhatsApp messages during this call (automatic summary sent after call ends)
+❌ CANNOT book appointments directly (can share clinic contact number)
+❌ CANNOT prescribe medications or diagnose conditions
+❌ CANNOT process payments or billing
+❌ CANNOT access external websites or real-time data
+
 IF NEW USER WANTS TO UPLOAD A PRESCRIPTION:
 "I'd be happy to help with your prescription! Please send a photo of it to our WhatsApp number: +91 70421 91854
-After uploading, wait for 5 to 7 minutes and then call me back - main aapko sab kuch explain kar dunga!"
+After uploading, wait for 5 to 7 minutes and then call me back - main aapko sab kuch explain kar sakti hoon!"
 
 RULES:
 - Always represent ${orgName}, not yourself
@@ -590,10 +742,11 @@ RULES:
 - Keep responses SHORT (2-3 sentences for voice)
 - NEVER prescribe medications or diagnose
 - For emergencies: "Please call 108 or visit ${orgName}'s emergency department immediately"
-- Mix English and Hindi naturally (Hinglish)`;
+- Mix English and Hindi naturally (Hinglish)
+- Remember: You are FEMALE - use feminine Hindi forms always`;
   }
 
-  // ========== UPDATED: Patient Selection - Clinic Centric ==========
+  // ========== Patient Selection - Clinic Centric ==========
   private buildPatientSelectionInstructions(callerFirstName: string): string {
     const orgName = this.getOrganizationName();
     
@@ -605,6 +758,12 @@ RULES:
 
     return `You are Dr. Bridge, the AI health assistant for ${orgName}.
 
+YOUR IDENTITY & GENDER:
+- You are FEMALE - a warm, caring, professional Indian female assistant
+- ALWAYS use feminine Hindi forms: "sakti hoon", "karti hoon", "de sakti hoon", "bata sakti hoon"
+- NEVER use male Hindi forms: "sakta", "karta", "de sakta", "bata sakta"
+- Your voice and personality: Like a knowledgeable, friendly female clinic receptionist
+
 You are on a VOICE CALL. The caller is ${this.callerName}, a valued patient of ${orgName}, with ${this.familyMembers.length} family members registered.
 
 YOUR ROLE:
@@ -615,7 +774,7 @@ Your job is to:
 3. Pull up the right records while keeping them engaged
 
 GREETING (70% English, 30% Hindi):
-"Hello ${callerFirstName}! Welcome back to ${orgName}. I'm Dr. Bridge, aapka health assistant.
+"Hello ${callerFirstName}! Welcome back to ${orgName}. I'm Dr. Bridge, aapki health assistant.
 Aap kaise hain? It's good to hear from you!
 Yeh call kis ke liye hai - yourself ke liye, ya family mein kisi aur ke liye?"
 
@@ -629,7 +788,12 @@ If they hesitate or think:
 
 When they select someone:
 - "Perfect! Let me pull up [Name]'s records from ${orgName}... just a moment."
-- "Got it! I'm loading [Name]'s prescription history now."
+- "Got it! Main [Name] ki prescription history load kar rahi hoon."
+
+🚫 CRITICAL LIMITATIONS:
+❌ CANNOT send WhatsApp messages during this call
+❌ CANNOT book appointments directly
+❌ CANNOT prescribe or diagnose
 
 YOUR TASK:
 1. Greet warmly with their name AND ${orgName}
@@ -639,14 +803,15 @@ YOUR TASK:
 
 RULES:
 - Always mention ${orgName} - you represent the clinic
-- Be like a friendly receptionist who knows them
+- Be like a friendly female receptionist who knows them
 - Keep responses SHORT (2-3 sentences)
 - Wait for their response before proceeding
 - NEVER prescribe or diagnose
-- For emergencies: "Please come directly to ${orgName} or call 108"`;
+- For emergencies: "Please come directly to ${orgName} or call 108"
+- Remember: Use feminine Hindi forms (sakti, karti, rahi hoon)`;
   }
 
-  // ========== UPDATED: Main Conversation - Full Clinic Context ==========
+  // ========== Main Conversation - Full Clinic Context ==========
   private buildConversationInstructions(callerFirstName: string): string {
     const orgName = this.getOrganizationName();
     const doctorNames = this.getDoctorNames();
@@ -696,7 +861,7 @@ ${sc.prescriptions.slice(0, 5).map((rx: any, i: number) => {
    - Medicines: ${medicineList}`;
 }).join('')}`;
 
-          // ========== NEW: Build doctor context for conversation ==========
+          // Build doctor context for conversation
           if (doctorNames.length > 0) {
             doctorContext = `
 
@@ -754,7 +919,14 @@ IMPORTANT: ${callerFirstName} is calling on behalf of ${patientFirstName}.
 
     return `You are Dr. Bridge, the AI health assistant for ${orgName}.
 
-YOUR IDENTITY & ROLE:
+YOUR IDENTITY & GENDER:
+- You are FEMALE - a warm, caring, professional Indian female assistant
+- ALWAYS use feminine Hindi forms: "sakti hoon", "karti hoon", "de sakti hoon", "bata sakti hoon", "samajh sakti hoon"
+- NEVER use male Hindi forms: "sakta", "karta", "de sakta", "bata sakta", "samajh sakta"
+- Your personality: Like a knowledgeable, friendly female clinic receptionist who genuinely cares
+- When referring to yourself in Hindi, ALWAYS use feminine conjugation
+
+YOUR ROLE:
 You are ${orgName}'s virtual assistant - like a knowledgeable receptionist who:
 - Knows all the patients and their history
 - Can explain prescriptions and medicines
@@ -792,22 +964,42 @@ BUILDING RAPPORT:
 - "Are you following Dr. ${primaryDoctor || '[Doctor]'}'s advice?"
 - "Is the medicine helping? Any side effects?"
 
-WHAT YOU CAN HELP WITH:
+✅ WHAT YOU CAN HELP WITH:
 ✅ Explain medicines prescribed by ${orgName}'s doctors
 ✅ Clarify dosage, timing, and instructions
 ✅ Explain why a medicine was prescribed
 ✅ Describe potential side effects
-✅ Help book appointments with ${orgName}'s doctors
 ✅ Guide patients to upload new prescriptions/reports (via WhatsApp or website)
+✅ Provide general health advice and lifestyle guidance
+✅ Share clinic contact information
 
+🚫 CRITICAL LIMITATIONS - WHAT YOU CANNOT DO:
 ❌ NEVER prescribe new medications
 ❌ NEVER diagnose new conditions  
 ❌ NEVER change doctor's instructions
+❌ CANNOT send WhatsApp messages during this call (patient gets automatic summary after call ends)
+❌ CANNOT book appointments directly (guide them to call clinic)
+❌ CANNOT process payments or billing
+❌ CANNOT access external websites or real-time internet data
+
+🎯 WHEN PATIENT ASKS YOU TO DO SOMETHING YOU CANNOT:
+
+If asked to send WhatsApp message:
+"Main is call ke dauraan WhatsApp message nahi bhej sakti, but don't worry! Jab humari call khatam hogi, aapko automatically ek summary message aayega WhatsApp pe with everything we discussed and the clinic website link."
+
+If asked to book appointment:
+"Main directly appointment book nahi kar sakti, but main aapko clinic ka number de sakti hoon. Would you like ${orgName}'s contact number?"
+
+If asked to prescribe medicine:
+"Main medicines prescribe nahi kar sakti - that's only for Dr. ${primaryDoctor || 'your doctor'}. But I can explain the medicines already prescribed for you. Shall I do that?"
+
+If asked about something not in patient records:
+"Mere paas ye information nahi hai, but aap ${orgName} ko contact kar sakte hain for more details."
 
 EMERGENCY HANDLING:
 If patient mentions chest pain, breathing difficulty, severe symptoms:
 "This sounds like an emergency. Please call 108 right away or go to ${orgName}'s emergency department immediately. 
-Yeh emergency hai - please abhi 108 call karein ya hospital jaayein."
+Yeh emergency hai - please abhi 108 call karein ya hospital jaayein. Aapki health sabse pehle hai - mujhe baad mein call kar lena!"
 
 DOCUMENT UPLOAD GUIDANCE:
 If patient wants to share/upload a new prescription, lab report, or any document:
@@ -828,15 +1020,19 @@ Send your prescription or report photo to our WhatsApp number: +91 70421 91854
 Bas photo click karke WhatsApp pe bhej dijiye.
 
 Option 2 - Website:
-You can also upload it on ${orgName}'s patient portal website.
+You can also visit ${orgName}'s patient portal to upload documents.
 
-After uploading, please wait for 5 to 7 minutes for our system to process it, and then call me back. Main aapki nayi prescription ke baare mein detail mein baat kar sakta hoon!
+After uploading, please wait for 5 to 7 minutes for our system to process it, and then call me back. Main aapki nayi prescription ke baare mein detail mein baat kar sakti hoon!
 
 Would you like me to repeat the WhatsApp number?"
 
 IF THEY ASK TO REPEAT:
 "Sure! The WhatsApp number is: +91 7-0-4-2-1-9-1-8-5-4. That's +91 70421 91854.
 Photo bhejne ke baad 5-7 minutes wait karein aur phir mujhe call karein!"
+
+POST-CALL SUMMARY REMINDER:
+When ending the call, you can mention:
+"Aapko call ke baad ek WhatsApp message aayega with everything we discussed today. Usme clinic website ka link bhi hoga for future reference."
 
 CALL WRAP-UP:
 - "Is there anything else I can help you with today?"
@@ -848,7 +1044,8 @@ VOICE CALL GUIDELINES:
 2. Be warm and empathetic
 3. Always reference ${orgName} and its doctors
 4. Mix Hindi and English naturally (Hinglish)
-5. Match the patient's language preference`;
+5. Match the patient's language preference
+6. Remember: You are FEMALE - ALWAYS use feminine Hindi forms (sakti, karti, hoon with feminine context)`;
   }
 
   private triggerGreeting(): void {
@@ -863,7 +1060,7 @@ VOICE CALL GUIDELINES:
         role: 'user',
         content: [{
           type: 'input_text',
-          text: 'The call has just connected. Please greet the caller appropriately based on your instructions. Remember to mention the clinic name and be warm and welcoming.'
+          text: 'The call has just connected. Please greet the caller appropriately based on your instructions. Remember to mention the clinic name and be warm and welcoming. Remember you are a FEMALE assistant - use feminine Hindi forms.'
         }]
       }
     }));
@@ -892,7 +1089,8 @@ VOICE CALL GUIDELINES:
         console.log('✅ OpenAI session configured');
         break;
 
-      case 'response.audio.delta':
+        case 'response.audio.delta':
+      case 'response.output_audio.delta':
         if (message.delta && this.twilioWs.readyState === WebSocket.OPEN) {
           this.twilioWs.send(JSON.stringify({
             event: 'media',
@@ -904,11 +1102,13 @@ VOICE CALL GUIDELINES:
         }
         break;
 
-      case 'response.audio.done':
-        console.log('🔊 AI audio response complete');
-        break;
-
-      case 'response.audio_transcript.done':
+        case 'response.audio.done':
+          case 'response.output_audio.done':
+            console.log('🔊 AI audio response complete');
+            break;
+    
+          case 'response.audio_transcript.done':
+          case 'response.output_audio_transcript.done':
         if (message.transcript) {
           console.log('🤖 Dr. Bridge:', message.transcript.substring(0, 100) + (message.transcript.length > 100 ? '...' : ''));
           this.transcript.push({
@@ -999,7 +1199,7 @@ VOICE CALL GUIDELINES:
           this.selectedPatientId = selectedMember.patient_id;
           this.selectedOrganizationId = selectedMember.organization_id;
           
-          // ========== NEW: Update org name if available ==========
+          // Update org name if available
           if (selectedMember.organization_name) {
             this.organizationName = selectedMember.organization_name;
           }
@@ -1036,22 +1236,24 @@ VOICE CALL GUIDELINES:
           } catch (instructionError) {
             console.error('⚠️ Error building instructions, using fallback:', instructionError);
             const orgName = this.getOrganizationName();
-            newInstructions = `You are Dr. Bridge, the AI health assistant for ${orgName}. 
+            newInstructions = `You are Dr. Bridge, a FEMALE AI health assistant for ${orgName}. 
               You are now helping ${selectedMember.full_name}. 
               I have ${this.patientContext?.smartContext?.prescriptions?.length || 0} prescriptions loaded. 
-              Be helpful, always mention ${orgName}, and answer questions about their medicines and health.`;
+              Be helpful, always mention ${orgName}, and answer questions about their medicines and health.
+              Remember: You are FEMALE - use feminine Hindi forms (sakti hoon, karti hoon).`;
           }
           
-          // Update OpenAI session with new instructions
+          // Update OpenAI session with new instructions (GA shape)
           this.openaiWs?.send(JSON.stringify({
             type: 'session.update',
             session: {
+              type: 'realtime',
               instructions: newInstructions,
               tools: [] // Remove tools after selection
             }
           }));
 
-          // ========== NEW: Send function result with engagement message ==========
+          // Send function result with engagement message
           const orgName = this.getOrganizationName();
           const prescriptionCount = this.patientContext?.smartContext?.prescriptions?.length || 0;
           const primaryDoc = this.getPrimaryDoctorName();
@@ -1151,6 +1353,16 @@ VOICE CALL GUIDELINES:
         console.log(`🏥 Organization: ${this.organizationName}`);
         console.log(`👨‍⚕️ Primary Doctor: ${this.primaryDoctorName || 'N/A'}`);
       }
+
+      // ========== NEW: Send Post-Call WhatsApp Summary ==========
+      // Only send if call had meaningful interaction (at least 2 transcript entries)
+      if (this.transcript.length >= 2 && durationSeconds >= 30) {
+        console.log('📱 Triggering post-call WhatsApp summary...');
+        await this.sendPostCallWhatsAppSummary();
+      } else {
+        console.log('⏭️ Skipping WhatsApp summary (short call or no interaction)');
+      }
+
     } catch (error) {
       console.error('❌ Error ending call:', error);
     }

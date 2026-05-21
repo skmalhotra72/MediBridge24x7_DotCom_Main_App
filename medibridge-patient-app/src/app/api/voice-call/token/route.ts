@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { OPENAI_REALTIME } from '@/lib/constants/openai-realtime';
 
 // Initialize Supabase client with service role for server-side operations
 const supabase = createClient(
@@ -675,7 +676,7 @@ Make every patient feel valued and every interaction build trust in ${clinicName
         call_direction: 'outbound',
         call_source: 'web',
         started_at: new Date().toISOString(),
-        ai_model: 'gpt-4o-realtime-preview-2024-12-17',
+        ai_model: OPENAI_REALTIME.MODEL,
         metadata: {
           prescriptions_count: prescriptions?.length || 0,
           medicines_count: allMedicines.length,
@@ -716,26 +717,29 @@ Make every patient feel valued and every interaction build trust in ${clinicName
 
     console.log('🔑 Creating OpenAI Realtime session...');
 
-    const openaiResponse = await fetch('https://api.openai.com/v1/realtime/sessions', {
+    const openaiResponse = await fetch(OPENAI_REALTIME.CLIENT_SECRETS_URL, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'gpt-4o-realtime-preview-2024-12-17',
-        modalities: ['text', 'audio'],
-        voice: 'alloy',
-        instructions: systemInstructions,
-        input_audio_transcription: {
-          model: 'whisper-1'
-        },
-        turn_detection: {
-          type: 'server_vad',
-          threshold: 0.5,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 800,
-          create_response: true
+        session: {
+          type: 'realtime',
+          model: OPENAI_REALTIME.MODEL,
+          output_modalities: OPENAI_REALTIME.OUTPUT_MODALITIES,
+          instructions: systemInstructions,
+          audio: {
+            input: {
+              format: OPENAI_REALTIME.BROWSER_AUDIO_FORMAT,
+              transcription: { model: OPENAI_REALTIME.TRANSCRIPTION_MODEL },
+              turn_detection: OPENAI_REALTIME.TURN_DETECTION
+            },
+            output: {
+              format: OPENAI_REALTIME.BROWSER_AUDIO_FORMAT,
+              voice: OPENAI_REALTIME.VOICE
+            }
+          }
         }
       })
     });
@@ -758,9 +762,13 @@ Make every patient feel valued and every interaction build trust in ${clinicName
     }
 
     const sessionData = await openaiResponse.json();
-    console.log('✅ OpenAI session created:', sessionData.id);
+    console.log('✅ OpenAI session created:', sessionData.session?.id || 'session');
 
-    const token = sessionData.client_secret?.value || sessionData.client_secret;
+    // GA returns the ephemeral key at top-level `value` (starts with `ek_`)
+    // Fallback chain handles both GA and legacy beta shapes
+    const token = sessionData.value
+      || sessionData.client_secret?.value
+      || sessionData.client_secret;
     
     if (!token) {
       return NextResponse.json(
@@ -828,8 +836,8 @@ function getRecommendationTriggers(specialization: string): string {
 export async function GET() {
   return NextResponse.json({
     status: 'available',
-    version: 'v7.0-clinic-intelligence',
-    model: 'gpt-4o-realtime-preview-2024-12-17',
+    version: 'v7.1-clinic-intelligence-ga',
+    model: OPENAI_REALTIME.MODEL,
     description: 'Dr. Bridge with Clinic Intelligence - knows clinic, doctors, services, can recommend specialists and help book appointments/lab tests',
     features: [
       'Clinic profile & services knowledge',
